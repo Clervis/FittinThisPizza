@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="hero">
+    <div>
+      <h2>Welcome to your canned Flask app</h2>
+      <p>This is a simple Jinja-powered front end. Customize the template, styles, and routes to get started.</p>
+      <div class="actions">
+        <a class="button" href="https://flask.palletsprojects.com/" target="_blank" rel="noreferrer">Flask Docs</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="card-grid">
+    <article class="card">
+      <h3>Jinja Templates</h3>
+      <p>Edit this file in templates/index.html to change the layout.</p>
+    </article>
+    <article class="card">
+      <h3>Static Assets</h3>
+      <p>Styles live in static/style.css. Add images under static/.</p>
+    </article>
+    <article class="card">
+      <h3>Routes</h3>
+      <p>Add new routes in derp.py using @app.get().</p>
+    </article>
+  </section>
+{% endblock %}

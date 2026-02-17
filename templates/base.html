@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ title or "Flask App" }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+  </head>
+  <body>
+    <div class="logo-float">
+      <img class="logo-image" src="{{ url_for('logo') }}" alt="Logo" />
+    </div>
+    <header class="site-header">
+      <div class="container">
+        <div class="logo-wrap">
+          <h1 class="logo">{{ title or "Flask App" }}</h1>
+        </div>
+        <nav class="nav">
+          <a href="{{ url_for('tracker') }}">Tracker</a>
+          <a href="{{ url_for('progress') }}">Prototype</a>
+        </nav>
+      </div>
+    </header>
+    <main class="container">
+      {% block content %}{% endblock %}
+    </main>
+  </body>
+</html>

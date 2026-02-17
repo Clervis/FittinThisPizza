@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+
+{% block content %}
+  {% for css_file in bokeh_css %}
+    <link rel="stylesheet" href="{{ css_file }}" />
+  {% endfor %}
+
+  {% for js_file in bokeh_js %}
+    <script src="{{ js_file }}"></script>
+  {% endfor %}
+
+  <section class="card" style="margin-top: 0.3rem;">
+    {% if div is iterable and div is not string %}
+      {% for item in div %}
+        {{ item | safe }}
+      {% endfor %}
+    {% else %}
+      {{ div | safe }}
+    {% endif %}
+  </section>
+
+  {{ script | safe }}
+
+  <section class="data-grid" style="margin-top: 2rem;">
+    <div class="card" style="overflow-x: auto;">
+      <h3>Fitness Data</h3>
+      <table class="editable-table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Christian<br />Weight</th>
+            <th>Christian<br />Target</th>
+            <th>Krysty<br />Weight</th>
+            <th>Krysty<br />Target</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+            <tr>
+              {% set c_weight = row["Christian Weight"] %}
+              {% set k_weight = row["Krysty Weight"] %}
+              {% set c_target = row["Christian Target"] %}
+              {% set k_target = row["Krysty Target"] %}
+              {% set has_weight = c_weight or k_weight %}
+              <td data-has-weight="{{ 'true' if has_weight else 'false' }}">{{ row["Date"] }}</td>
+              <td>
+                <input type="number" step="0.1" name="christian_weight" value="{{ "%.1f"|format(c_weight|float) if c_weight else "" }}" form="edit-{{ loop.index }}" />
+              </td>
+              <td>{{ "%.1f"|format(c_target|float) if c_target else "" }}</td>
+              <td>
+                <input type="number" step="0.1" name="krysty_weight" value="{{ "%.1f"|format(k_weight|float) if k_weight else "" }}" form="edit-{{ loop.index }}" />
+              </td>
+              <td>{{ "%.1f"|format(k_target|float) if k_target else "" }}</td>
+              <td class="actions">
+                <form method="post" id="edit-{{ loop.index }}">
+                  <input type="hidden" name="action" value="edit_row" />
+                  <input type="hidden" name="date" value="{{ row['DateISO'] }}" />
+                  <button class="button" type="submit">Update</button>
+                </form>
+                <form method="post" class="inline-form" onsubmit="return confirm('Delete?');">
+                  <input type="hidden" name="action" value="delete" />
+                  <input type="hidden" name="date" value="{{ row['DateISO'] }}" />
+                  <button class="button button-outline" type="submit">Delete</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <div class="pagination" id="tablePagination"></div>
+    </div>
+  </section>
+
+  <script>
+    const rowsPerPage = 7;
+    const table = document.querySelector(".editable-table");
+    const tableRows = Array.from(table?.querySelectorAll("tbody tr") ?? []);
+    const pagination = document.getElementById("tablePagination");
+
+    const getDefaultPage = () => {
+      const weightIndex = tableRows.findIndex((row) =>
+        row.querySelector("td")?.dataset.hasWeight === "true"
+      );
+      const index = weightIndex >= 0 ? weightIndex : 0;
+      return Math.floor(index / rowsPerPage) + 1;
+    };
+
+    const renderPage = (page) => {
+      const start = (page - 1) * rowsPerPage;
+      const end = start + rowsPerPage;
+      tableRows.forEach((row, idx) => {
+        row.style.display = idx >= start && idx < end ? "" : "none";
+      });
+      renderPagination(page);
+    };
+
+    const renderPagination = (activePage) => {
+      if (!pagination) return;
+      const totalPages = Math.ceil(tableRows.length / rowsPerPage) || 1;
+      pagination.innerHTML = "";
+
+      const addButton = (label, targetPage, isDisabled = false, isActive = false) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = label;
+        button.className = isActive ? "page-button active" : "page-button";
+        button.disabled = isDisabled;
+        if (!isDisabled && targetPage) {
+          button.addEventListener("click", () => renderPage(targetPage));
+        }
+        pagination.appendChild(button);
+      };
+
+      addButton("⏮", 1, activePage === 1);
+      addButton("◀", activePage - 1, activePage === 1);
+
+      const startPage = Math.max(1, activePage - 2);
+      const endPage = Math.min(totalPages, activePage + 2);
+
+      for (let page = startPage; page <= endPage; page += 1) {
+        addButton(`${page}`, page, false, page === activePage);
+      }
+
+      addButton("▶", activePage + 1, activePage === totalPages);
+      addButton("⏭", totalPages, activePage === totalPages);
+    };
+
+    if (tableRows.length > rowsPerPage) {
+      renderPage(getDefaultPage());
+    }
+  </script>
+{% endblock %}
