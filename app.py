@@ -6,8 +6,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from bokeh.embed import components
-from bokeh.events import DocumentReady
-from bokeh.models import ColumnDataSource, CustomJS, DaysTicker, HoverTool, LinearAxis, Range1d, RangeTool
+from bokeh.models import ColumnDataSource, DaysTicker, HoverTool, LinearAxis, Range1d
 from bokeh.plotting import figure
 from bokeh.resources import CDN
 from flask import Flask, redirect, render_template, request, send_from_directory, url_for
@@ -557,37 +556,7 @@ def _render_progress_rows(
 	plot.legend.click_policy = "hide"
 	plot.legend.visible = False
 
-	select = figure(
-		height=120,
-		sizing_mode="stretch_width",
-		x_axis_type="datetime",
-		y_range=plot.y_range,
-		toolbar_location=None,
-		y_axis_type=None,
-		background_fill_color="#0b1220",
-	)
-	select.extra_y_ranges = {
-		"krysty": plot.extra_y_ranges["krysty"]
-	}
-	select.line(
-		dates,
-		christian_targets,
-		color="#166534",
-		line_dash="dashed",
-	)
-	select.line(
-		dates,
-		krysty_targets,
-		color="#f97316",
-		line_dash="dashed",
-		y_range_name="krysty",
-	)
-	range_tool = RangeTool(x_range=plot.x_range)
-	range_tool.overlay.fill_color = "#f97316"
-	range_tool.overlay.fill_alpha = 0.2
-	select.add_tools(range_tool)
-
-	script, div = components((plot, select))
+	script, div = components(plot)
 	return render_template(
 		"progress.html",
 		title="Fit'ness Whole Pizza in my Mouth",
