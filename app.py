@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import os
+import shutil
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -68,6 +69,16 @@ def _parse_float(value: str) -> float | None:
 		return float(value)
 	except (TypeError, ValueError):
 		return None
+
+
+def _ensure_seed_data_file(data_path: Path, seed_filename: str) -> None:
+	if data_path.exists():
+		return
+	seed_path = Path(__file__).resolve().parent / seed_filename
+	if seed_path.exists():
+		shutil.copyfile(seed_path, data_path)
+		return
+	_write_rows(data_path, [])
 
 
 def _nutrition_data_path(person: str) -> Path:
@@ -608,6 +619,8 @@ def _render_progress_rows(
 def create_app() -> Flask:
 	app = Flask(__name__)
 	DATA_DIR.mkdir(parents=True, exist_ok=True)
+	_ensure_seed_data_file(DATA_DIR / "fitness_data.csv", "fitness_data.csv")
+	_ensure_seed_data_file(DATA_DIR / "fitness_data_prototype.csv", "fitness_data_prototype.csv")
 
 	@app.get("/")
 	def index() -> str:
