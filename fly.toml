@@ -16,6 +16,10 @@ primary_region = 'iad'
   min_machines_running = 0
   processes = ['app']
 
+[mounts]
+  source = 'data'
+  destination = '/data'
+
 [[vm]]
   memory = '256mb'
   cpus = 1

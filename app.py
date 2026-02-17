@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import os
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -18,6 +19,8 @@ CSV_COLUMNS = [
 	"Krysty Target",
 	"Date",
 ]
+
+DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 
 
 def _read_rows(data_path: Path) -> list[dict[str, str]]:
@@ -596,6 +599,7 @@ def _render_progress_rows(
 
 def create_app() -> Flask:
 	app = Flask(__name__)
+	DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 	@app.get("/")
 	def index() -> str:
@@ -607,7 +611,7 @@ def create_app() -> Flask:
 
 	@app.route("/progress", methods=["GET", "POST"])
 	def progress() -> str:
-		data_path = Path(__file__).resolve().with_name("fitness_data_prototype.csv")
+		data_path = DATA_DIR / "fitness_data_prototype.csv"
 		if request.method == "POST":
 			_handle_post(data_path)
 			return redirect(url_for("progress"))
@@ -615,7 +619,7 @@ def create_app() -> Flask:
 
 	@app.route("/tracker", methods=["GET", "POST"])
 	def tracker() -> str:
-		data_path = Path(__file__).resolve().with_name("fitness_data.csv")
+		data_path = DATA_DIR / "fitness_data.csv"
 		if request.method == "POST":
 			_handle_post(data_path)
 			return redirect(url_for("tracker"))
