@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="card" style="margin-top: 0.3rem;">
+    <h3>Nutrition</h3>
+    <div class="tabs" style="margin-top: 0.75rem;">
+      <a class="tab {{ 'active' if active_person == 'christian' else '' }}" href="{{ url_for('nutrition', person='christian') }}">Christian</a>
+      <a class="tab {{ 'active' if active_person == 'krysty' else '' }}" href="{{ url_for('nutrition', person='krysty') }}">Krysty</a>
+    </div>
+  </section>
+
+  <section class="card" style="margin-top: 1rem;">
+    <h3>{{ 'Christian' if active_person == 'christian' else 'Krysty' }} - Daily Log</h3>
+    <p style="margin-top: 0.2rem; color: var(--muted);">Date: {{ today }}</p>
+
+    <form method="post" class="nutrition-form" style="margin-top: 0.9rem;">
+      <label>
+        Meal
+        <input type="text" name="meal" required />
+      </label>
+      <label>
+        Calories
+        <input type="number" name="calories" min="0" step="1" required />
+      </label>
+      <button class="button" type="submit">Add Entry</button>
+    </form>
+
+    <table class="editable-table" style="margin-top: 1rem;">
+      <thead>
+        <tr>
+          <th>Day</th>
+          <th>Meal</th>
+          <th>Calories</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for entry in entries %}
+          <tr>
+            <td>{{ entry['Date'] }}</td>
+            <td>{{ entry['Meal'] }}</td>
+            <td>{{ entry['Calories'] }}</td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="3">No entries for today yet.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <div class="nutrition-total">Total Calories: {{ total_calories }}</div>
+  </section>
+{% endblock %}

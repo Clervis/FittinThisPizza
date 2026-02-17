@@ -18,6 +18,11 @@ CSV_COLUMNS = [
 	"Krysty Target",
 	"Date",
 ]
+NUTRITION_COLUMNS = [
+	"Date",
+	"Meal",
+	"Calories",
+]
 
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 
@@ -63,6 +68,38 @@ def _parse_float(value: str) -> float | None:
 		return float(value)
 	except (TypeError, ValueError):
 		return None
+
+
+def _nutrition_data_path(person: str) -> Path:
+	return DATA_DIR / f"nutrition_{person}.csv"
+
+
+def _read_nutrition_rows(data_path: Path) -> list[dict[str, str]]:
+	if not data_path.exists():
+		return []
+
+	with data_path.open(newline="", encoding="utf-8") as handle:
+		reader = csv.DictReader(handle)
+		return [row for row in reader]
+
+
+def _write_nutrition_rows(data_path: Path, rows: list[dict[str, str]]) -> None:
+	with data_path.open("w", newline="", encoding="utf-8") as handle:
+		writer = csv.DictWriter(handle, fieldnames=NUTRITION_COLUMNS)
+		writer.writeheader()
+		writer.writerows(rows)
+
+
+def _add_nutrition_entry(data_path: Path, meal: str, calories: int) -> None:
+	rows = _read_nutrition_rows(data_path)
+	rows.append(
+		{
+			"Date": datetime.now().strftime("%Y-%m-%d"),
+			"Meal": meal,
+			"Calories": str(calories),
+		}
+	)
+	_write_nutrition_rows(data_path, rows)
 
 
 def _upsert_weight(
@@ -595,6 +632,47 @@ def create_app() -> Flask:
 			_handle_post(data_path)
 			return redirect(url_for("tracker"))
 		return _render_progress(data_path)
+
+	@app.route("/nutrition", methods=["GET", "POST"])
+	def nutrition() -> str:
+		person = request.args.get("person", "christian").strip().lower()
+		if person not in {"christian", "krysty"}:
+			person = "christian"
+
+		data_path = _nutrition_data_path(person)
+		if request.method == "POST":
+			meal = request.form.get("meal", "").strip()
+			calories_input = request.form.get("calories", "").strip()
+			if meal and calories_input:
+				try:
+					calories = int(calories_input)
+				except ValueError:
+					calories = -1
+				if calories >= 0:
+					_add_nutrition_entry(data_path, meal, calories)
+			return redirect(url_for("nutrition", person=person))
+
+		today = datetime.now().strftime("%Y-%m-%d")
+		today_entries = [
+			row
+			for row in _read_nutrition_rows(data_path)
+			if row.get("Date", "") == today
+		]
+		total_calories = 0
+		for row in today_entries:
+			try:
+				total_calories += int(row.get("Calories", "0"))
+			except ValueError:
+				continue
+
+		return render_template(
+			"nutrition.html",
+			title="Nutrition",
+			active_person=person,
+			today=today,
+			entries=today_entries,
+			total_calories=total_calories,
+		)
 
 	return app
 

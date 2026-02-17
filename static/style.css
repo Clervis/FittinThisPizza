@@ -142,6 +142,8 @@ body {
   border-radius: 999px;
   cursor: pointer;
   font-weight: 600;
+  text-decoration: none;
+  display: inline-block;
 }
 
 .tab.active {
@@ -256,6 +258,40 @@ body {
   justify-content: flex-end;
   margin-top: 1rem;
   flex-wrap: wrap;
+}
+
+.nutrition-form {
+  display: grid;
+  grid-template-columns: 1fr 12rem auto;
+  gap: 0.75rem;
+  align-items: end;
+}
+
+.nutrition-form label {
+  display: grid;
+  gap: 0.4rem;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.nutrition-form input {
+  background: rgba(15, 23, 42, 0.7);
+  color: var(--text);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 10px;
+  padding: 0.5rem 0.7rem;
+}
+
+.nutrition-total {
+  margin-top: 0.9rem;
+  text-align: right;
+  font-weight: 700;
+}
+
+@media (max-width: 900px) {
+  .nutrition-form {
+    grid-template-columns: 1fr;
+  }
 }
 
 .page-button {
