@@ -9,14 +9,16 @@
     <script src="{{ js_file }}"></script>
   {% endfor %}
 
-  <section class="card" style="margin-top: 0.3rem;">
-    {% if div is iterable and div is not string %}
-      {% for item in div %}
-        {{ item | safe }}
-      {% endfor %}
-    {% else %}
-      {{ div | safe }}
-    {% endif %}
+  <section class="card chart-card" style="margin-top: 0.3rem;">
+    <div class="chart-scroll">
+      {% if div is iterable and div is not string %}
+        {% for item in div %}
+          {{ item | safe }}
+        {% endfor %}
+      {% else %}
+        {{ div | safe }}
+      {% endif %}
+    </div>
   </section>
 
   {{ script | safe }}
@@ -28,11 +30,10 @@
         <thead>
           <tr>
             <th>Date</th>
-            <th>Christian<br />Weight</th>
+            <th class="weight-col">Christian<br />Weight</th>
             <th>Christian<br />Target</th>
-            <th>Krysty<br />Weight</th>
+            <th class="weight-col">Krysty<br />Weight</th>
             <th>Krysty<br />Target</th>
-            <th>Action</th>
           </tr>
         </thead>
         <tbody>
@@ -43,27 +44,21 @@
               {% set c_target = row["Christian Target"] %}
               {% set k_target = row["Krysty Target"] %}
               {% set has_weight = c_weight or k_weight %}
-              <td data-has-weight="{{ 'true' if has_weight else 'false' }}">{{ row["Date"] }}</td>
-              <td>
-                <input type="number" step="0.1" name="christian_weight" value="{{ "%.1f"|format(c_weight|float) if c_weight else "" }}" form="edit-{{ loop.index }}" />
+              <form method="post" id="edit-{{ loop.index }}">
+                <input type="hidden" name="action" value="edit_row" />
+                <input type="hidden" name="date" value="{{ row['DateISO'] }}" />
+              </form>
+              <td data-has-weight="{{ 'true' if has_weight else 'false' }}">
+                {{ row["DateISO"].split("-")[1] | int }}/{{ row["DateISO"].split("-")[2] | int }}
+              </td>
+              <td class="weight-col">
+                <input class="weight-input" type="number" step="0.1" name="christian_weight" value="{{ "%.1f"|format(c_weight|float) if c_weight else "" }}" form="edit-{{ loop.index }}" />
               </td>
               <td>{{ "%.1f"|format(c_target|float) if c_target else "" }}</td>
-              <td>
-                <input type="number" step="0.1" name="krysty_weight" value="{{ "%.1f"|format(k_weight|float) if k_weight else "" }}" form="edit-{{ loop.index }}" />
+              <td class="weight-col">
+                <input class="weight-input" type="number" step="0.1" name="krysty_weight" value="{{ "%.1f"|format(k_weight|float) if k_weight else "" }}" form="edit-{{ loop.index }}" />
               </td>
               <td>{{ "%.1f"|format(k_target|float) if k_target else "" }}</td>
-              <td class="actions">
-                <form method="post" id="edit-{{ loop.index }}">
-                  <input type="hidden" name="action" value="edit_row" />
-                  <input type="hidden" name="date" value="{{ row['DateISO'] }}" />
-                  <button class="button" type="submit">Update</button>
-                </form>
-                <form method="post" class="inline-form" onsubmit="return confirm('Delete?');">
-                  <input type="hidden" name="action" value="delete" />
-                  <input type="hidden" name="date" value="{{ row['DateISO'] }}" />
-                  <button class="button button-outline" type="submit">Delete</button>
-                </form>
-              </td>
             </tr>
           {% endfor %}
         </tbody>
@@ -77,6 +72,7 @@
     const table = document.querySelector(".editable-table");
     const tableRows = Array.from(table?.querySelectorAll("tbody tr") ?? []);
     const pagination = document.getElementById("tablePagination");
+    const weightInputs = Array.from(table?.querySelectorAll(".weight-input") ?? []);
 
     const getDefaultPage = () => {
       const weightIndex = tableRows.findIndex((row) =>
@@ -129,5 +125,19 @@
     if (tableRows.length > rowsPerPage) {
       renderPage(getDefaultPage());
     }
+
+    weightInputs.forEach((input) => {
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          const formId = input.getAttribute("form");
+          const form = formId ? document.getElementById(formId) : input.closest("form");
+          if (form) {
+            event.preventDefault();
+            form.requestSubmit();
+          }
+        }
+      });
+    });
+
   </script>
 {% endblock %}

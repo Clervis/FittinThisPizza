@@ -5,7 +5,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from bokeh.embed import components
-from bokeh.models import ColumnDataSource, HoverTool, LinearAxis, Range1d, RangeTool
+from bokeh.events import DocumentReady
+from bokeh.models import ColumnDataSource, CustomJS, DaysTicker, HoverTool, LinearAxis, Range1d, RangeTool
 from bokeh.plotting import figure
 from bokeh.resources import CDN
 from flask import Flask, redirect, render_template, request, send_from_directory, url_for
@@ -128,20 +129,20 @@ def _handle_post(data_path: Path) -> bool:
 			"Krysty Weight": request.form.get("krysty_weight", "").strip(),
 		}
 
-		for key in updated:
-			if updated[key]:
-				try:
-					float(updated[key])
-				except ValueError:
-					updated[key] = ""
-
 		rows = _read_rows(data_path)
 		date_str = date_value.strftime("%m-%d-%Y")
 		for row in rows:
 			if row.get("Date") == date_str:
 				for key, value in updated.items():
-					if value != "":
-						row[key] = value
+					if value == "":
+						row[key] = ""
+						continue
+					try:
+						float(value)
+					except ValueError:
+						row[key] = ""
+						continue
+					row[key] = value
 				break
 		_write_rows(data_path, sorted(rows, key=_date_key))
 		return True
@@ -333,14 +334,14 @@ def _render_progress_rows(
 		christian_y0,
 		christian_y1,
 		christian_line_colors,
-	) = build_segments(dates, christian_weights, christian_targets, "#ef4444", "#22c55e")
+	) = build_segments(dates, christian_weights, christian_targets, "#166534", "#166534")
 	(
 		krysty_x0,
 		krysty_x1,
 		krysty_y0,
 		krysty_y1,
 		krysty_line_colors,
-	) = build_segments(dates, krysty_weights, krysty_targets, "#ef4444", "#22c55e")
+	) = build_segments(dates, krysty_weights, krysty_targets, "#f97316", "#f97316")
 	(
 		christian_area_xs,
 		christian_area_ys,
@@ -356,6 +357,8 @@ def _render_progress_rows(
 		title="Fin'ness Whole Pizza in my Mouth",
 		x_axis_type="datetime",
 		sizing_mode="stretch_width",
+		aspect_ratio=16 / 9,
+		min_height=360,
 		height=840,
 		toolbar_location="above",
 		x_range=(latest_start, latest_end),
@@ -372,9 +375,19 @@ def _render_progress_rows(
 	christian_span = christian_max - christian_min or 1.0
 	plot.y_range = Range1d(christian_min - (christian_span * 0.6), christian_max)
 	plot.xaxis.axis_label = "Date"
+	plot.xaxis.formatter.days = "%m/%d"
+	plot.xaxis.formatter.months = "%m/%d"
+	plot.xaxis.formatter.hours = "%m/%d"
+	plot.xaxis.formatter.minutes = "%m/%d"
+	plot.xaxis.formatter.seconds = "%m/%d"
+	plot.xaxis.ticker = DaysTicker(days=list(range(1, 32)))
+	plot.xaxis.minor_tick_line_color = None
 	plot.yaxis.axis_label = "Christian Weight (lbs)"
+	plot.yaxis.axis_label_text_font_style = "bold"
 	plot.yaxis.axis_label_text_color = "#166534"
 	plot.yaxis.major_label_text_color = "#166534"
+	plot.yaxis.major_label_orientation = 1.5708
+	plot.yaxis.minor_tick_line_color = None
 
 	krysty_window = [
 		krysty_targets[idx] for idx in window_indices if krysty_targets[idx] is not None
@@ -390,8 +403,11 @@ def _render_progress_rows(
 		"krysty": Range1d(krysty_min, krysty_max + (krysty_span * 0.6))
 	}
 	right_axis = LinearAxis(y_range_name="krysty", axis_label="Krysty Weight (lbs)")
+	right_axis.axis_label_text_font_style = "bold"
 	right_axis.axis_label_text_color = "#f97316"
 	right_axis.major_label_text_color = "#f97316"
+	right_axis.major_label_orientation = 1.5708
+	right_axis.minor_tick_line_color = None
 	plot.add_layout(right_axis, "right")
 	christian_source = ColumnDataSource(
 		{
@@ -537,6 +553,7 @@ def _render_progress_rows(
 	plot.legend.location = "top_right"
 	plot.legend.label_text_font_size = "9pt"
 	plot.legend.click_policy = "hide"
+	plot.legend.visible = False
 
 	select = figure(
 		height=120,

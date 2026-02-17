@@ -227,10 +227,27 @@ body {
   padding: 0.35rem 0.5rem;
 }
 
-.editable-table .actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.5rem;
+.editable-table .weight-col {
+  width: 6.25rem;
+}
+
+.editable-table .weight-input {
+  min-width: 5.5rem;
+  padding: 0.3rem 0.45rem;
+  font-size: 0.9rem;
+}
+
+.button.button-small {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+.icon-button {
+  line-height: 1;
+}
+
+.icon-dark {
+  color: #111827;
 }
 
 .pagination {
@@ -266,7 +283,15 @@ body {
   margin-left: 0;
 }
 
-@media (max-width: 768px) {
+.chart-scroll {
+  overflow-x: auto;
+}
+
+.chart-scroll .bk-root {
+  min-width: 900px;
+}
+
+@media (max-width: 1024px) {
   .container {
     width: 94vw;
     padding: 1.25rem 0;
@@ -322,6 +347,24 @@ body {
   .editable-table td {
     padding: 0.5rem 0.6rem;
   }
+
+  .editable-table {
+    font-size: 0.85rem;
+  }
+
+  .editable-table th,
+  .editable-table td {
+    white-space: normal;
+  }
+
+  .chart-scroll .bk-root {
+    min-width: 720px;
+  }
+
+  .bk-legend,
+  .bk-legend-item {
+    display: none !important;
+  }
 }
 
 @media (max-width: 480px) {
@@ -342,7 +385,34 @@ body {
     min-width: 5.5rem;
   }
 
+  .editable-table .weight-col {
+    width: 5.5rem;
+  }
+
+  .editable-table .weight-input {
+    min-width: 4.5rem;
+    font-size: 0.8rem;
+  }
+
+  .button.button-small {
+    padding: 0.3rem 0.6rem;
+    font-size: 0.8rem;
+  }
+
+  .editable-table {
+    font-size: 0.8rem;
+  }
+
+  .editable-table th,
+  .editable-table td {
+    padding: 0.45rem 0.5rem;
+  }
+
   .pagination {
     justify-content: flex-start;
+  }
+
+  .chart-scroll .bk-root {
+    min-width: 640px;
   }
 }
