@@ -34,6 +34,7 @@
             <th>Christian<br />Target</th>
             <th class="weight-col">Krysty<br />Weight</th>
             <th>Krysty<br />Target</th>
+            <th>Save</th>
           </tr>
         </thead>
         <tbody>
@@ -59,6 +60,9 @@
                 <input class="weight-input" type="number" step="0.1" name="krysty_weight" value="{{ "%.1f"|format(k_weight|float) if k_weight else "" }}" form="edit-{{ loop.index }}" />
               </td>
               <td>{{ "%.1f"|format(k_target|float) if k_target else "" }}</td>
+              <td>
+                <button type="submit" form="edit-{{ loop.index }}">Save</button>
+              </td>
             </tr>
           {% endfor %}
         </tbody>

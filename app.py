@@ -357,7 +357,6 @@ def _render_progress_rows(
 	) = build_area_segments(dates, krysty_weights, krysty_targets, "#ef4444", "#22c55e")
 
 	plot = figure(
-		title="Fin'ness Whole Pizza in my Mouth",
 		x_axis_type="datetime",
 		sizing_mode="stretch_width",
 		aspect_ratio=16 / 9,
@@ -567,6 +566,9 @@ def _render_progress_rows(
 		y_axis_type=None,
 		background_fill_color="#0b1220",
 	)
+	select.extra_y_ranges = {
+		"krysty": plot.extra_y_ranges["krysty"]
+	}
 	select.line(
 		dates,
 		christian_targets,
