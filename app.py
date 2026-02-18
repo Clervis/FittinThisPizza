@@ -5,6 +5,7 @@ import os
 import shutil
 from datetime import datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from bokeh.embed import components
 from bokeh.models import ColumnDataSource, DaysTicker, HoverTool, LinearAxis, Range1d
@@ -26,6 +27,7 @@ NUTRITION_COLUMNS = [
 ]
 
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
+EASTERN_TZ = ZoneInfo("America/New_York")
 
 
 def _read_rows(data_path: Path) -> list[dict[str, str]]:
@@ -85,6 +87,10 @@ def _nutrition_data_path(person: str) -> Path:
 	return DATA_DIR / f"nutrition_{person}.csv"
 
 
+def _nutrition_now() -> datetime:
+	return datetime.now(EASTERN_TZ)
+
+
 def _read_nutrition_rows(data_path: Path) -> list[dict[str, str]]:
 	if not data_path.exists():
 		return []
@@ -105,7 +111,7 @@ def _add_nutrition_entry(data_path: Path, meal: str, calories: int) -> None:
 	rows = _read_nutrition_rows(data_path)
 	rows.append(
 		{
-			"Date": datetime.now().strftime("%Y-%m-%d"),
+			"Date": _nutrition_now().strftime("%Y-%m-%d"),
 			"Meal": meal,
 			"Calories": str(calories),
 		}
@@ -665,12 +671,22 @@ def create_app() -> Flask:
 					_add_nutrition_entry(data_path, meal, calories)
 			return redirect(url_for("nutrition", person=person))
 
-		today = datetime.now().strftime("%Y-%m-%d")
+		today = _nutrition_now().strftime("%Y-%m-%d")
+		all_entries = _read_nutrition_rows(data_path)
 		today_entries = [
 			row
-			for row in _read_nutrition_rows(data_path)
+			for row in all_entries
 			if row.get("Date", "") == today
 		]
+		previous_entries = sorted(
+			[
+				row
+				for row in all_entries
+				if row.get("Date", "") != today
+			],
+			key=lambda row: row.get("Date", ""),
+			reverse=True,
+		)
 		total_calories = 0
 		for row in today_entries:
 			try:
@@ -683,7 +699,8 @@ def create_app() -> Flask:
 			title="Nutrition",
 			active_person=person,
 			today=today,
-			entries=today_entries,
+			today_entries=today_entries,
+			previous_entries=previous_entries,
 			total_calories=total_calories,
 		)
 

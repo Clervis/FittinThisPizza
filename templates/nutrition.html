@@ -34,7 +34,7 @@
         </tr>
       </thead>
       <tbody>
-        {% for entry in entries %}
+        {% for entry in today_entries %}
           <tr>
             <td>{{ entry['Date'] }}</td>
             <td>{{ entry['Meal'] }}</td>
@@ -49,5 +49,31 @@
     </table>
 
     <div class="nutrition-total">Total Calories: {{ total_calories }}</div>
+  </section>
+
+  <section class="card" style="margin-top: 1rem;">
+    <h3>Previous Days</h3>
+    <table class="editable-table" style="margin-top: 0.8rem;">
+      <thead>
+        <tr>
+          <th>Day</th>
+          <th>Meal</th>
+          <th>Calories</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for entry in previous_entries %}
+          <tr>
+            <td>{{ entry['Date'] }}</td>
+            <td>{{ entry['Meal'] }}</td>
+            <td>{{ entry['Calories'] }}</td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="3">No previous entries yet.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </section>
 {% endblock %}
