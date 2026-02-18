@@ -15,6 +15,10 @@
 
     <form method="post" class="nutrition-form" style="margin-top: 0.9rem;">
       <label>
+        Entry Date
+        <input type="date" name="entry_date" value="{{ today }}" max="{{ today }}" required />
+      </label>
+      <label>
         Meal
         <input type="text" name="meal" required />
       </label>
@@ -51,29 +55,39 @@
     <div class="nutrition-total">Total Calories: {{ total_calories }}</div>
   </section>
 
-  <section class="card" style="margin-top: 1rem;">
+  <section class="card previous-days-card" style="margin-top: 1rem;">
     <h3>Previous Days</h3>
-    <table class="editable-table" style="margin-top: 0.8rem;">
-      <thead>
-        <tr>
-          <th>Day</th>
-          <th>Meal</th>
-          <th>Calories</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for entry in previous_entries %}
-          <tr>
-            <td>{{ entry['Date'] }}</td>
-            <td>{{ entry['Meal'] }}</td>
-            <td>{{ entry['Calories'] }}</td>
-          </tr>
-        {% else %}
-          <tr>
-            <td colspan="3">No previous entries yet.</td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    {% for day in previous_days %}
+      <div class="previous-day-group">
+        <div class="previous-day-header">
+          <span>{{ day.date }}</span>
+          <span>Total Calories: {{ day.total_calories }}</span>
+        </div>
+        <form method="post" class="previous-day-add-form" style="margin-top: 0.55rem;">
+          <input type="hidden" name="entry_date" value="{{ day.date }}" />
+          <input type="text" name="meal" placeholder="Meal" required />
+          <input type="number" name="calories" min="0" step="1" placeholder="Calories" required />
+          <button class="button button-small" type="submit">Add Entry</button>
+        </form>
+        <table class="editable-table" style="margin-top: 0.6rem;">
+          <thead>
+            <tr>
+              <th>Meal</th>
+              <th>Calories</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for entry in day.entries %}
+              <tr>
+                <td>{{ entry['Meal'] }}</td>
+                <td>{{ entry['Calories'] }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p style="margin-top: 0.7rem; color: var(--muted);">No previous entries yet.</p>
+    {% endfor %}
   </section>
 {% endblock %}

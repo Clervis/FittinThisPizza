@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import csv
+import json
 import os
 import shutil
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from bokeh.layouts import column as bokeh_column, row as bokeh_row
 from bokeh.embed import components
-from bokeh.models import ColumnDataSource, DaysTicker, HoverTool, LinearAxis, Range1d
+from bokeh.models import Button, ColumnDataSource, CustomJS, DaysTicker, HoverTool, InlineStyleSheet, LinearAxis, Range1d, Spacer
 from bokeh.plotting import figure
 from bokeh.resources import CDN
 from flask import Flask, redirect, render_template, request, send_from_directory, url_for
@@ -26,8 +28,35 @@ NUTRITION_COLUMNS = [
 	"Calories",
 ]
 
-DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
+DEFAULT_DATA_DIR = (
+	"/data"
+	if os.getenv("FLY_APP_NAME")
+	else str(Path(__file__).resolve().parent)
+)
+DATA_DIR = Path(os.getenv("DATA_DIR", DEFAULT_DATA_DIR))
 EASTERN_TZ = ZoneInfo("America/New_York")
+SYNC_METADATA_PATH = Path(__file__).resolve().parent / ".fly_data_sync.json"
+
+
+def _build_data_sync_note() -> str:
+	if os.getenv("FLY_APP_NAME"):
+		return "Fly app · live data volume: /data"
+
+	if not SYNC_METADATA_PATH.exists():
+		return "Local app · no Fly sync metadata yet"
+
+	try:
+		with SYNC_METADATA_PATH.open(encoding="utf-8") as handle:
+			metadata = json.load(handle)
+	except (OSError, json.JSONDecodeError):
+		return "Local app · sync metadata unavailable"
+
+	pulled_at = metadata.get("pulled_at_utc", "unknown time")
+	volume = metadata.get("source_volume", "/data")
+	machine = metadata.get("source_machine_id")
+	if machine:
+		return f"Local app · pulled {pulled_at} from {volume} (machine {machine})"
+	return f"Local app · pulled {pulled_at} from {volume}"
 
 
 def _read_rows(data_path: Path) -> list[dict[str, str]]:
@@ -107,11 +136,16 @@ def _write_nutrition_rows(data_path: Path, rows: list[dict[str, str]]) -> None:
 		writer.writerows(rows)
 
 
-def _add_nutrition_entry(data_path: Path, meal: str, calories: int) -> None:
+def _add_nutrition_entry(
+	data_path: Path,
+	meal: str,
+	calories: int,
+	entry_date: str,
+) -> None:
 	rows = _read_nutrition_rows(data_path)
 	rows.append(
 		{
-			"Date": _nutrition_now().strftime("%Y-%m-%d"),
+			"Date": entry_date,
 			"Meal": meal,
 			"Calories": str(calories),
 		}
@@ -206,14 +240,14 @@ def _handle_post(data_path: Path) -> bool:
 	return False
 
 
-def _render_progress(data_path: Path) -> str:
+def _render_progress(data_path: Path, show_range_buttons: bool = False) -> str:
 	rows = _read_rows(data_path)
 	rows_asc = sorted(rows, key=_date_key)
 	rows_desc = sorted(rows, key=_date_key, reverse=True)
 	if not rows_asc:
 		return render_template(
 			"progress.html",
-			title="Fit'ness Whole Pizza in my Mouth",
+			title="Fittin' this Whole Pizza in my Mouth",
 			script="",
 			div="",
 			bokeh_js=CDN.js_files,
@@ -221,12 +255,13 @@ def _render_progress(data_path: Path) -> str:
 			rows=[],
 		)
 
-	return _render_progress_rows(rows_asc, rows_desc)
+	return _render_progress_rows(rows_asc, rows_desc, show_range_buttons)
 
 
 def _render_progress_rows(
 	rows_asc: list[dict[str, str]],
 	rows_desc: list[dict[str, str]],
+	show_range_buttons: bool = False,
 ) -> str:
 	dates: list[datetime] = []
 	christian_weights: list[float | None] = []
@@ -278,11 +313,15 @@ def _render_progress_rows(
 	if weight_indices:
 		end_idx = weight_indices[-1]
 		start_idx = weight_indices[-7] if len(weight_indices) >= 7 else weight_indices[0]
+		first_weight_idx = weight_indices[0]
 		latest_start = dates[start_idx]
 		latest_end = dates[end_idx] + timedelta(days=1)
+		latest_weight_date = dates[end_idx]
 	else:
+		first_weight_idx = 0
 		latest_end = dates[-1] + timedelta(days=1)
 		latest_start = dates[max(len(dates) - 7, 0)]
+		latest_weight_date = dates[-1]
 	window_indices = [
 		idx for idx, date_value in enumerate(dates) if latest_start <= date_value <= latest_end
 	]
@@ -610,7 +649,176 @@ def _render_progress_rows(
 	plot.legend.click_policy = "hide"
 	plot.legend.visible = False
 
-	script, div = components(plot)
+	plot_view = plot
+	if show_range_buttons:
+		days_in_ms = 24 * 60 * 60 * 1000
+		latest_end_ms = int((latest_weight_date + timedelta(days=1)).timestamp() * 1000)
+		max_start_ms = int(dates[first_weight_idx].timestamp() * 1000)
+		max_end_ms = latest_end_ms
+
+		def window_callback(window_days: int) -> CustomJS:
+			return CustomJS(
+				args={
+					"x_range": plot.x_range,
+					"y_range": plot.y_range,
+					"krysty_range": plot.extra_y_ranges["krysty"],
+					"christian_source": christian_source,
+					"krysty_source": krysty_source,
+					"latest_end_ms": latest_end_ms,
+					"max_start_ms": max_start_ms,
+					"days_ms": window_days * days_in_ms,
+				},
+				code="""
+const start = Math.max(max_start_ms, latest_end_ms - days_ms);
+x_range.start = start;
+x_range.end = latest_end_ms;
+
+const updateAxisRanges = (startMs, endMs) => {
+	const cData = christian_source.data;
+	const kData = krysty_source.data;
+	const cX = cData.x || [];
+	const cY = cData.y || [];
+	const cTarget = cData.target || [];
+	const kY = kData.y || [];
+	const kTarget = kData.target || [];
+
+	const cWindow = [];
+	const kWindow = [];
+
+	for (let i = 0; i < cX.length; i += 1) {
+		const xVal = cX[i];
+		if (xVal == null || xVal < startMs || xVal > endMs) {
+			continue;
+		}
+
+		const cTargetVal = cTarget[i];
+		const cWeightVal = cY[i];
+		if (cTargetVal != null) cWindow.push(cTargetVal);
+		if (cWeightVal != null) cWindow.push(cWeightVal);
+
+		const kTargetVal = kTarget[i];
+		const kWeightVal = kY[i];
+		if (kTargetVal != null) kWindow.push(kTargetVal);
+		if (kWeightVal != null) kWindow.push(kWeightVal);
+	}
+
+	const cValues = cWindow.length ? cWindow : [0, 1];
+	const cMin = Math.min(...cValues);
+	const cMax = Math.max(...cValues);
+	const cSpan = (cMax - cMin) || 1;
+	y_range.start = cMin - (cSpan * 0.6);
+	y_range.end = cMax;
+
+	const kValues = kWindow.length ? kWindow : [0, 1];
+	const kMin = Math.min(...kValues);
+	const kMax = Math.max(...kValues);
+	const kSpan = (kMax - kMin) || 1;
+	krysty_range.start = kMin;
+	krysty_range.end = kMax + (kSpan * 0.6);
+};
+
+updateAxisRanges(start, latest_end_ms);
+x_range.change.emit();
+y_range.change.emit();
+krysty_range.change.emit();
+""",
+			)
+
+		one_week = Button(label="1 Week", button_type="warning", width=90)
+		two_weeks = Button(label="2 Weeks", button_type="warning", width=90)
+		one_month = Button(label="1 Month", button_type="warning", width=90)
+		max_range = Button(label="Max", button_type="warning", width=80)
+
+		for control_button in (one_week, two_weeks, one_month, max_range):
+			control_button.styles = {
+				"--inverted-color": "#111827",
+				"color": "#111827",
+			}
+			control_button.stylesheets = [
+				InlineStyleSheet(css=".bk-btn{font-weight:700 !important;}")
+			]
+
+		one_week.js_on_click(window_callback(7))
+		two_weeks.js_on_click(window_callback(14))
+		one_month.js_on_click(window_callback(30))
+		max_range.js_on_click(
+			CustomJS(
+				args={
+					"x_range": plot.x_range,
+					"y_range": plot.y_range,
+					"krysty_range": plot.extra_y_ranges["krysty"],
+					"christian_source": christian_source,
+					"krysty_source": krysty_source,
+					"max_start_ms": max_start_ms,
+					"max_end_ms": max_end_ms,
+				},
+				code="""
+x_range.start = max_start_ms;
+x_range.end = max_end_ms;
+
+const updateAxisRanges = (startMs, endMs) => {
+	const cData = christian_source.data;
+	const kData = krysty_source.data;
+	const cX = cData.x || [];
+	const cY = cData.y || [];
+	const cTarget = cData.target || [];
+	const kY = kData.y || [];
+	const kTarget = kData.target || [];
+
+	const cWindow = [];
+	const kWindow = [];
+
+	for (let i = 0; i < cX.length; i += 1) {
+		const xVal = cX[i];
+		if (xVal == null || xVal < startMs || xVal > endMs) {
+			continue;
+		}
+
+		const cTargetVal = cTarget[i];
+		const cWeightVal = cY[i];
+		if (cTargetVal != null) cWindow.push(cTargetVal);
+		if (cWeightVal != null) cWindow.push(cWeightVal);
+
+		const kTargetVal = kTarget[i];
+		const kWeightVal = kY[i];
+		if (kTargetVal != null) kWindow.push(kTargetVal);
+		if (kWeightVal != null) kWindow.push(kWeightVal);
+	}
+
+	const cValues = cWindow.length ? cWindow : [0, 1];
+	const cMin = Math.min(...cValues);
+	const cMax = Math.max(...cValues);
+	const cSpan = (cMax - cMin) || 1;
+	y_range.start = cMin - (cSpan * 0.6);
+	y_range.end = cMax;
+
+	const kValues = kWindow.length ? kWindow : [0, 1];
+	const kMin = Math.min(...kValues);
+	const kMax = Math.max(...kValues);
+	const kSpan = (kMax - kMin) || 1;
+	krysty_range.start = kMin;
+	krysty_range.end = kMax + (kSpan * 0.6);
+};
+
+updateAxisRanges(max_start_ms, max_end_ms);
+x_range.change.emit();
+y_range.change.emit();
+krysty_range.change.emit();
+""",
+			)
+		)
+
+		controls = bokeh_row(
+			Spacer(sizing_mode="stretch_width"),
+			max_range,
+			one_month,
+			two_weeks,
+			one_week,
+			sizing_mode="stretch_width",
+		)
+		plot_view = bokeh_column(plot, controls, sizing_mode="stretch_width")
+
+	script, div = components(plot_view)
 	return render_template(
 		"progress.html",
 		title="Fit'ness Whole Pizza in my Mouth",
@@ -628,6 +836,12 @@ def create_app() -> Flask:
 	_ensure_seed_data_file(DATA_DIR / "fitness_data.csv", "fitness_data.csv")
 	_ensure_seed_data_file(DATA_DIR / "fitness_data_prototype.csv", "fitness_data_prototype.csv")
 
+	@app.context_processor
+	def inject_data_dir() -> dict[str, str]:
+		return {
+			"data_sync_note": _build_data_sync_note(),
+		}
+
 	@app.get("/")
 	def index() -> str:
 		return redirect(url_for("tracker"))
@@ -642,7 +856,7 @@ def create_app() -> Flask:
 		if request.method == "POST":
 			_handle_post(data_path)
 			return redirect(url_for("progress"))
-		return _render_progress(data_path)
+		return _render_progress(data_path, show_range_buttons=True)
 
 	@app.route("/tracker", methods=["GET", "POST"])
 	def tracker() -> str:
@@ -650,43 +864,64 @@ def create_app() -> Flask:
 		if request.method == "POST":
 			_handle_post(data_path)
 			return redirect(url_for("tracker"))
-		return _render_progress(data_path)
+		return _render_progress(data_path, show_range_buttons=True)
 
 	@app.route("/nutrition", methods=["GET", "POST"])
 	def nutrition() -> str:
 		person = request.args.get("person", "christian").strip().lower()
 		if person not in {"christian", "krysty"}:
 			person = "christian"
+		today = _nutrition_now().strftime("%Y-%m-%d")
 
 		data_path = _nutrition_data_path(person)
 		if request.method == "POST":
 			meal = request.form.get("meal", "").strip()
 			calories_input = request.form.get("calories", "").strip()
+			entry_date_input = request.form.get("entry_date", "").strip()
+			entry_date = today
+			if entry_date_input:
+				try:
+					entry_date = datetime.strptime(entry_date_input, "%Y-%m-%d").strftime("%Y-%m-%d")
+				except ValueError:
+					entry_date = today
 			if meal and calories_input:
 				try:
 					calories = int(calories_input)
 				except ValueError:
 					calories = -1
 				if calories >= 0:
-					_add_nutrition_entry(data_path, meal, calories)
+					_add_nutrition_entry(data_path, meal, calories, entry_date)
 			return redirect(url_for("nutrition", person=person))
 
-		today = _nutrition_now().strftime("%Y-%m-%d")
 		all_entries = _read_nutrition_rows(data_path)
 		today_entries = [
 			row
 			for row in all_entries
 			if row.get("Date", "") == today
 		]
-		previous_entries = sorted(
-			[
-				row
-				for row in all_entries
-				if row.get("Date", "") != today
-			],
-			key=lambda row: row.get("Date", ""),
-			reverse=True,
-		)
+		previous_by_date: dict[str, list[dict[str, str]]] = {}
+		for row in all_entries:
+			date_value = row.get("Date", "")
+			if not date_value or date_value == today:
+				continue
+			previous_by_date.setdefault(date_value, []).append(row)
+
+		previous_days: list[dict[str, object]] = []
+		for date_value in sorted(previous_by_date.keys(), reverse=True):
+			entries = previous_by_date[date_value]
+			day_total = 0
+			for row in entries:
+				try:
+					day_total += int(row.get("Calories", "0"))
+				except ValueError:
+					continue
+			previous_days.append(
+				{
+					"date": date_value,
+					"entries": entries,
+					"total_calories": day_total,
+				}
+			)
 		total_calories = 0
 		for row in today_entries:
 			try:
@@ -700,7 +935,7 @@ def create_app() -> Flask:
 			active_person=person,
 			today=today,
 			today_entries=today_entries,
-			previous_entries=previous_entries,
+			previous_days=previous_days,
 			total_calories=total_calories,
 		)
 

@@ -43,3 +43,21 @@ The app blends simple data tracking with playful branding — because getting in
 - CSV ingestion and display
 
 ---
+
+## 🔄 Local <-> Fly Data Sync
+
+Use these helper scripts from the repo root to test locally with current Fly data.
+
+- Pull latest data from Fly to local CSV files:
+  - `./scripts/sync_from_fly.sh`
+- Push local CSV files to Fly (creates remote backups first):
+  - `./scripts/sync_to_fly.sh`
+  - Non-interactive: `./scripts/sync_to_fly.sh --yes`
+
+Optional environment variables:
+
+- `APP_NAME` (default: `fittinthispizza`)
+- `REMOTE_DIR` (default: `/data`)
+- `FLY_MACHINE_ID` (target a specific machine)
+
+---
