@@ -197,6 +197,8 @@ def _call_groq(messages: list[dict[str, str]]) -> str:
 		headers={
 			"Authorization": f"Bearer {api_key}",
 			"Content-Type": "application/json",
+			"Accept": "application/json",
+			"User-Agent": "FittinThisPizza/1.0",
 		},
 		method="POST",
 	)
