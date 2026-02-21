@@ -9,7 +9,7 @@
     </div>
   </section>
 
-  <section class="nutrition-grid" style="margin-top: 1rem;">
+  <section class="nutrition-grid single-column" style="margin-top: 1rem;">
     <div class="card">
       <h3>{{ 'Christian' if active_person == 'christian' else 'Krysty' }} - Daily Log</h3>
       <p style="margin-top: 0.2rem; color: var(--muted);">Date: {{ today }}</p>
@@ -58,9 +58,14 @@
 
     <div class="card nutrition-summary">
       <h3>Groq Summary</h3>
-      {% if available_dates %}
-        <form method="post" style="margin-top: 0.75rem;">
-          <input type="hidden" name="action" value="summary" />
+      {% if profile %}
+        <p style="margin-top: 0.4rem; color: var(--muted);">
+          Age: {{ profile.age }} &middot; Height: {{ profile.height }}
+        </p>
+      {% endif %}
+      <form method="post" style="margin-top: 0.75rem;">
+        <input type="hidden" name="action" value="summary" />
+        {% if available_dates %}
           <label style="display: block; margin-bottom: 0.6rem;">
             Date
             <select name="summary_date" required>
@@ -69,9 +74,15 @@
               {% endfor %}
             </select>
           </label>
-          <button class="button" type="submit">Generate Summary</button>
-        </form>
-      {% endif %}
+        {% else %}
+          <input type="hidden" name="summary_date" value="{{ summary_date }}" />
+        {% endif %}
+        <label style="display: block; margin-bottom: 0.6rem;">
+          Prompt
+          <textarea name="prompt_text" rows="4" required>{{ prompt_text }}</textarea>
+        </label>
+        <button class="button" type="submit">Generate Summary</button>
+      </form>
 
       {% if summary_generated_at %}
         <p style="margin-top: 0.65rem; color: var(--muted); font-size: 0.85rem;">

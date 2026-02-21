@@ -48,6 +48,14 @@ FLY_APP_NAME = os.getenv("FLY_APP_NAME", "fittinthispizza")
 FLY_VOLUME_PATH = os.getenv("FLY_VOLUME_PATH", "/data")
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+PERSON_PROFILES = {
+	"christian": {"age": 42, "height": "6'0\""},
+	"krysty": {"age": 41, "height": "5'4\""},
+}
+DEFAULT_NUTRITION_PROMPT = (
+	"Keep it encouraging and concise. Mention protein, veggies, and hydration. "
+	"Offer one small improvement idea for tomorrow."
+)
 
 
 def _build_data_sync_note() -> str:
@@ -174,6 +182,11 @@ def _nutrition_now() -> datetime:
 	return datetime.now(EASTERN_TZ)
 
 
+def _is_mobile_request() -> bool:
+	user_agent = request.headers.get("User-Agent", "").lower()
+	return any(token in user_agent for token in ("iphone", "android", "mobile", "ipad"))
+
+
 def _call_groq(messages: list[dict[str, str]]) -> str:
 	api_key = os.getenv("GROQ_API_KEY", "")
 	if os.getenv("GROQ_DEBUG", "0") == "1":
@@ -222,6 +235,9 @@ def _summarize_nutrition(
 	entry_date: str,
 	entries: list[dict[str, str]],
 	total_calories: int,
+	prompt_text: str,
+	current_weight: float | None,
+	weekly_target_loss: float | None,
 ) -> tuple[str | None, str | None]:
 	if not entries:
 		return None, "No entries found for that date."
@@ -234,6 +250,13 @@ def _summarize_nutrition(
 			continue
 		lines.append(f"- {meal}: {calories} calories")
 
+	weight_note = "unknown"
+	if current_weight is not None:
+		weight_note = f"{current_weight:.1f} lb"
+	weekly_target_note = "unknown"
+	if weekly_target_loss is not None:
+		weekly_target_note = f"{weekly_target_loss:.1f} lb/week"
+
 	prompt = (
 		"You are a helpful nutrition assistant. Summarize the day in 3-5 sentences. "
 		"Mention total calories and any patterns. If calories seem low or high, "
@@ -241,7 +264,10 @@ def _summarize_nutrition(
 	)
 	user_content = (
 		f"Person: {person}\n"
+		f"User prompt: {prompt_text}\n"
 		f"Date: {entry_date}\n"
+		f"Current weight: {weight_note}\n"
+		f"Weekly weight loss target: {weekly_target_note}\n"
 		f"Total calories: {total_calories}\n"
 		"Entries:\n"
 		+ "\n".join(lines)
@@ -253,9 +279,63 @@ def _summarize_nutrition(
 				{"role": "user", "content": user_content},
 			]
 		)
+		context_lines = [
+			f"Prompt: {prompt_text}",
+			f"Current weight: {weight_note}",
+			f"Weekly weight loss target: {weekly_target_note}",
+			"Log:",
+			*lines,
+		]
+		summary = "\n".join(context_lines) + "\n\nSummary:\n" + summary
 		return summary, None
 	except (RuntimeError, urllib.error.URLError, KeyError, json.JSONDecodeError) as exc:
 		return None, f"Groq error: {exc}"
+
+
+def _get_tracker_metrics(person: str) -> tuple[float | None, float | None]:
+	data_path = DATA_DIR / "fitness_data.csv"
+	rows = _read_rows(data_path)
+	if not rows:
+		return None, None
+	rows_sorted = sorted(rows, key=_date_key)
+	person_title = person.title()
+	weight_key = f"{person_title} Weight"
+	target_key = f"{person_title} Target"
+
+	current_weight: float | None = None
+	for row in reversed(rows_sorted):
+		value = _parse_float(row.get(weight_key, ""))
+		if value is not None:
+			current_weight = value
+			break
+
+	latest_target_date: datetime | None = None
+	latest_target_value: float | None = None
+	for row in reversed(rows_sorted):
+		value = _parse_float(row.get(target_key, ""))
+		if value is None:
+			continue
+		latest_target_value = value
+		latest_target_date = _date_key(row)
+		break
+
+	weekly_target_loss: float | None = None
+	if latest_target_date and latest_target_value is not None:
+		cutoff = latest_target_date - timedelta(days=7)
+		previous_target_value: float | None = None
+		for row in reversed(rows_sorted):
+			row_date = _date_key(row)
+			if row_date > cutoff:
+				continue
+			value = _parse_float(row.get(target_key, ""))
+			if value is None:
+				continue
+			previous_target_value = value
+			break
+		if previous_target_value is not None:
+			weekly_target_loss = previous_target_value - latest_target_value
+
+	return current_weight, weekly_target_loss
 
 
 def _read_nutrition_rows(data_path: Path) -> list[dict[str, str]]:
@@ -301,6 +381,7 @@ def _render_nutrition_page(
 	available_dates: list[str] | None,
 	summary_generated_at: str | None,
 	summary_source: str | None,
+	prompt_text: str,
 ) -> str:
 	today_entries = [
 		row
@@ -363,6 +444,8 @@ def _render_nutrition_page(
 		available_dates=available_dates,
 		summary_generated_at=summary_generated_at,
 		summary_source=summary_source,
+		prompt_text=prompt_text,
+		profile=PERSON_PROFILES.get(person, {}),
 	)
 
 
@@ -453,7 +536,12 @@ def _handle_post(data_path: Path) -> bool:
 	return False
 
 
-def _render_progress(data_path: Path, show_range_buttons: bool = False) -> str:
+def _render_progress(
+	data_path: Path,
+	show_range_buttons: bool = False,
+	page_class: str = "",
+	is_mobile: bool = False,
+) -> str:
 	rows = _read_rows(data_path)
 	rows_asc = sorted(rows, key=_date_key)
 	rows_desc = sorted(rows, key=_date_key, reverse=True)
@@ -466,15 +554,26 @@ def _render_progress(data_path: Path, show_range_buttons: bool = False) -> str:
 			bokeh_js=CDN.js_files,
 			bokeh_css=CDN.css_files,
 			rows=[],
+			page_class=page_class,
+			range_controls=None,
+			is_mobile=is_mobile,
 		)
 
-	return _render_progress_rows(rows_asc, rows_desc, show_range_buttons)
+	return _render_progress_rows(
+		rows_asc,
+		rows_desc,
+		show_range_buttons,
+		page_class,
+		is_mobile,
+	)
 
 
 def _render_progress_rows(
 	rows_asc: list[dict[str, str]],
 	rows_desc: list[dict[str, str]],
 	show_range_buttons: bool = False,
+	page_class: str = "",
+	is_mobile: bool = False,
 ) -> str:
 	dates: list[datetime] = []
 	christian_weights: list[float | None] = []
@@ -661,15 +760,20 @@ def _render_progress_rows(
 		krysty_area_colors,
 	) = build_area_segments(dates, krysty_weights, krysty_targets, "#ef4444", "#22c55e")
 
+	plot_height = 240 if (page_class == "tracker-page" and is_mobile) else 720
+	min_height = 220 if (page_class == "tracker-page" and is_mobile) else 360
+	plot_aspect = 24 / 9 if (page_class == "tracker-page" and is_mobile) else 16 / 9
 	plot = figure(
 		x_axis_type="datetime",
 		sizing_mode="stretch_width",
-		aspect_ratio=16 / 9,
-		min_height=360,
-		height=840,
+		aspect_ratio=plot_aspect,
+		min_height=min_height,
+		height=plot_height,
 		toolbar_location="above",
 		x_range=(latest_start, latest_end),
 	)
+	plot_name = f"{page_class or 'progress'}-plot"
+	plot.name = plot_name
 	christian_window = [
 		christian_targets[idx] for idx in window_indices if christian_targets[idx] is not None
 	] + [
@@ -758,6 +862,8 @@ def _render_progress_rows(
 			],
 		}
 	)
+	christian_source.name = f"{plot_name}-christian"
+	krysty_source.name = f"{plot_name}-krysty"
 
 	christian_points = plot.scatter(
 		"x",
@@ -863,25 +969,36 @@ def _render_progress_rows(
 	plot.legend.visible = False
 
 	plot_view = plot
+	range_controls = None
 	if show_range_buttons:
 		days_in_ms = 24 * 60 * 60 * 1000
 		latest_end_ms = int((latest_weight_date + timedelta(days=1)).timestamp() * 1000)
 		max_start_ms = int(dates[first_weight_idx].timestamp() * 1000)
 		max_end_ms = latest_end_ms
 
-		def window_callback(window_days: int) -> CustomJS:
-			return CustomJS(
-				args={
-					"x_range": plot.x_range,
-					"y_range": plot.y_range,
-					"krysty_range": plot.extra_y_ranges["krysty"],
-					"christian_source": christian_source,
-					"krysty_source": krysty_source,
-					"latest_end_ms": latest_end_ms,
-					"max_start_ms": max_start_ms,
-					"days_ms": window_days * days_in_ms,
-				},
-				code="""
+		if is_mobile:
+			range_controls = {
+				"plot_name": plot_name,
+				"christian_source": christian_source.name,
+				"krysty_source": krysty_source.name,
+				"max_start_ms": max_start_ms,
+				"max_end_ms": max_end_ms,
+				"days_ms": days_in_ms,
+			}
+		else:
+			def window_callback(window_days: int) -> CustomJS:
+				return CustomJS(
+					args={
+						"x_range": plot.x_range,
+						"y_range": plot.y_range,
+						"krysty_range": plot.extra_y_ranges["krysty"],
+						"christian_source": christian_source,
+						"krysty_source": krysty_source,
+						"latest_end_ms": latest_end_ms,
+						"max_start_ms": max_start_ms,
+						"days_ms": window_days * days_in_ms,
+					},
+					code="""
 const start = Math.max(max_start_ms, latest_end_ms - days_ms);
 x_range.start = start;
 x_range.end = latest_end_ms;
@@ -935,37 +1052,39 @@ x_range.change.emit();
 y_range.change.emit();
 krysty_range.change.emit();
 """,
-			)
+				)
 
-		one_week = Button(label="1 Week", button_type="warning", width=90)
-		two_weeks = Button(label="2 Weeks", button_type="warning", width=90)
-		one_month = Button(label="1 Month", button_type="warning", width=90)
-		max_range = Button(label="Max", button_type="warning", width=80)
+			button_width = 90
+			max_width = 80
+			one_week = Button(label="1 Week", button_type="warning", width=button_width)
+			two_weeks = Button(label="2 Weeks", button_type="warning", width=button_width)
+			one_month = Button(label="1 Month", button_type="warning", width=button_width)
+			max_range = Button(label="Max", button_type="warning", width=max_width)
 
-		for control_button in (one_week, two_weeks, one_month, max_range):
-			control_button.styles = {
-				"--inverted-color": "#111827",
-				"color": "#111827",
-			}
-			control_button.stylesheets = [
-				InlineStyleSheet(css=".bk-btn{font-weight:700 !important;}")
-			]
+			for control_button in (one_week, two_weeks, one_month, max_range):
+				control_button.styles = {
+					"--inverted-color": "#111827",
+					"color": "#111827",
+				}
+				control_button.stylesheets = [
+					InlineStyleSheet(css=".bk-btn{font-weight:700 !important;}")
+				]
 
-		one_week.js_on_click(window_callback(7))
-		two_weeks.js_on_click(window_callback(14))
-		one_month.js_on_click(window_callback(30))
-		max_range.js_on_click(
-			CustomJS(
-				args={
-					"x_range": plot.x_range,
-					"y_range": plot.y_range,
-					"krysty_range": plot.extra_y_ranges["krysty"],
-					"christian_source": christian_source,
-					"krysty_source": krysty_source,
-					"max_start_ms": max_start_ms,
-					"max_end_ms": max_end_ms,
-				},
-				code="""
+			one_week.js_on_click(window_callback(7))
+			two_weeks.js_on_click(window_callback(14))
+			one_month.js_on_click(window_callback(30))
+			max_range.js_on_click(
+				CustomJS(
+					args={
+						"x_range": plot.x_range,
+						"y_range": plot.y_range,
+						"krysty_range": plot.extra_y_ranges["krysty"],
+						"christian_source": christian_source,
+						"krysty_source": krysty_source,
+						"max_start_ms": max_start_ms,
+						"max_end_ms": max_end_ms,
+					},
+					code="""
 x_range.start = max_start_ms;
 x_range.end = max_end_ms;
 
@@ -1018,18 +1137,25 @@ x_range.change.emit();
 y_range.change.emit();
 krysty_range.change.emit();
 """,
+				)
 			)
-		)
 
-		controls = bokeh_row(
-			Spacer(sizing_mode="stretch_width"),
-			max_range,
-			one_month,
-			two_weeks,
-			one_week,
-			sizing_mode="stretch_width",
-		)
-		plot_view = bokeh_column(plot, controls, sizing_mode="stretch_width")
+			controls = bokeh_row(
+				Spacer(sizing_mode="stretch_width"),
+				max_range,
+				one_month,
+				two_weeks,
+				one_week,
+				spacing=2,
+				align="end",
+				sizing_mode="stretch_width",
+			)
+			controls_card = bokeh_column(
+				controls,
+				sizing_mode="stretch_width",
+				css_classes=["controls-card"],
+			)
+			plot_view = bokeh_column(plot, controls_card, sizing_mode="stretch_width")
 
 	script, div = components(plot_view)
 	return render_template(
@@ -1040,6 +1166,9 @@ krysty_range.change.emit();
 		bokeh_js=CDN.js_files,
 		bokeh_css=CDN.css_files,
 		rows=rows_with_iso,
+		page_class=page_class,
+		range_controls=range_controls,
+		is_mobile=is_mobile,
 	)
 
 
@@ -1072,7 +1201,12 @@ def create_app() -> Flask:
 		if request.method == "POST":
 			_handle_post(data_path)
 			return redirect(url_for("progress"))
-		return _render_progress(data_path, show_range_buttons=True)
+		return _render_progress(
+			data_path,
+			show_range_buttons=True,
+			page_class="prototype-page",
+			is_mobile=_is_mobile_request(),
+		)
 
 	@app.route("/tracker", methods=["GET", "POST"])
 	def tracker() -> str:
@@ -1080,7 +1214,12 @@ def create_app() -> Flask:
 		if request.method == "POST":
 			_handle_post(data_path)
 			return redirect(url_for("tracker"))
-		return _render_progress(data_path, show_range_buttons=True)
+		return _render_progress(
+			data_path,
+			show_range_buttons=True,
+			page_class="tracker-page",
+			is_mobile=_is_mobile_request(),
+		)
 
 	@app.route("/nutrition", methods=["GET", "POST"])
 	def nutrition() -> str:
@@ -1088,6 +1227,7 @@ def create_app() -> Flask:
 		if person not in {"christian", "krysty"}:
 			person = "christian"
 		today = _nutrition_now().strftime("%Y-%m-%d")
+		default_prompt = DEFAULT_NUTRITION_PROMPT
 
 		data_path = _nutrition_data_path(person)
 		all_entries = _read_nutrition_rows(data_path)
@@ -1103,6 +1243,7 @@ def create_app() -> Flask:
 			action = request.form.get("action", "add").strip().lower()
 			if action == "summary":
 				summary_date = request.form.get("summary_date", "").strip() or today
+				prompt_text = request.form.get("prompt_text", "").strip() or default_prompt
 				try:
 					summary_date = datetime.strptime(summary_date, "%Y-%m-%d").strftime("%Y-%m-%d")
 				except ValueError:
@@ -1119,6 +1260,7 @@ def create_app() -> Flask:
 						previous_dates,
 						datetime.now(EASTERN_TZ).strftime("%Y-%m-%d %H:%M:%S"),
 						"manual",
+						prompt_text,
 					)
 				if summary_date not in previous_dates:
 					summary_date = previous_dates[0]
@@ -1133,11 +1275,15 @@ def create_app() -> Flask:
 						summary_total += int(row.get("Calories", "0"))
 					except ValueError:
 						continue
+				current_weight, weekly_target_loss = _get_tracker_metrics(person)
 				summary_text, summary_error = _summarize_nutrition(
 					person,
 					summary_date,
 					entries_for_date,
 					summary_total,
+					prompt_text,
+					current_weight,
+					weekly_target_loss,
 				)
 
 				return _render_nutrition_page(
@@ -1150,6 +1296,7 @@ def create_app() -> Flask:
 					previous_dates,
 					datetime.now(EASTERN_TZ).strftime("%Y-%m-%d %H:%M:%S"),
 					"manual",
+					prompt_text,
 				)
 
 			meal = request.form.get("meal", "").strip()
@@ -1175,6 +1322,7 @@ def create_app() -> Flask:
 		summary_date = previous_dates[0] if previous_dates else today
 		summary_generated_at = None
 		summary_source = None
+		prompt_text = default_prompt
 		if previous_dates:
 			entries_for_date = [
 				row
@@ -1187,11 +1335,15 @@ def create_app() -> Flask:
 					summary_total += int(row.get("Calories", "0"))
 				except ValueError:
 					continue
+			current_weight, weekly_target_loss = _get_tracker_metrics(person)
 			summary_text, summary_error = _summarize_nutrition(
 				person,
 				summary_date,
 				entries_for_date,
 				summary_total,
+				prompt_text,
+				current_weight,
+				weekly_target_loss,
 			)
 			summary_generated_at = datetime.now(EASTERN_TZ).strftime("%Y-%m-%d %H:%M:%S")
 			summary_source = "auto"
@@ -1210,6 +1362,7 @@ def create_app() -> Flask:
 			previous_dates,
 			summary_generated_at,
 			summary_source,
+			prompt_text,
 		)
 
 	return app

@@ -9,8 +9,8 @@
     <script src="{{ js_file }}"></script>
   {% endfor %}
 
-  <section class="card chart-card" style="margin-top: 0.3rem;">
-    <div class="chart-scroll">
+  <section class="chart-card {{ '' if is_mobile else 'card' }}" style="margin-top: 0.3rem;">
+    <div class="chart-scroll {{ 'chart-fullbleed' if is_mobile else '' }}">
       {% if div is iterable and div is not string %}
         {% for item in div %}
           {{ item | safe }}
@@ -22,6 +22,26 @@
   </section>
 
   {{ script | safe }}
+
+  {% if range_controls %}
+    <section class="card range-card" style="margin-top: 0.8rem;">
+      <div
+        class="range-controls"
+        data-range-controls
+        data-plot-name="{{ range_controls.plot_name }}"
+        data-christian-source="{{ range_controls.christian_source }}"
+        data-krysty-source="{{ range_controls.krysty_source }}"
+        data-max-start="{{ range_controls.max_start_ms }}"
+        data-max-end="{{ range_controls.max_end_ms }}"
+        data-days-ms="{{ range_controls.days_ms }}"
+      >
+        <button class="button range-button" type="button" data-range="max">Max</button>
+        <button class="button range-button" type="button" data-range="30">1 Month</button>
+        <button class="button range-button" type="button" data-range="14">2 Weeks</button>
+        <button class="button range-button" type="button" data-range="7">1 Week</button>
+      </div>
+    </section>
+  {% endif %}
 
   <section class="data-grid" style="margin-top: 2rem;">
     <div class="card" style="overflow-x: auto;">
@@ -138,6 +158,98 @@
         }
       });
     });
+
+    const setupRangeControls = () => {
+      const container = document.querySelector("[data-range-controls]");
+      if (!container || !window.Bokeh || !Bokeh.documents || !Bokeh.documents.length) return;
+
+      const doc = Bokeh.documents[0];
+      const plotName = container.dataset.plotName;
+      const cName = container.dataset.christianSource;
+      const kName = container.dataset.krystySource;
+      const plot = doc.get_model_by_name(plotName);
+      const christianSource = doc.get_model_by_name(cName);
+      const krystySource = doc.get_model_by_name(kName);
+      if (!plot || !christianSource || !krystySource) return;
+
+      const maxStart = Number(container.dataset.maxStart);
+      const maxEnd = Number(container.dataset.maxEnd);
+      const daysMs = Number(container.dataset.daysMs);
+      const xRange = plot.x_range;
+      const yRange = plot.y_range;
+      const krystyRange = plot.extra_y_ranges.krysty;
+
+      const updateAxisRanges = (startMs, endMs) => {
+        const cData = christianSource.data;
+        const kData = krystySource.data;
+        const cX = cData.x || [];
+        const cY = cData.y || [];
+        const cTarget = cData.target || [];
+        const kY = kData.y || [];
+        const kTarget = kData.target || [];
+
+        const cWindow = [];
+        const kWindow = [];
+
+        for (let i = 0; i < cX.length; i += 1) {
+          const xVal = cX[i];
+          if (xVal == null || xVal < startMs || xVal > endMs) {
+            continue;
+          }
+
+          const cTargetVal = cTarget[i];
+          const cWeightVal = cY[i];
+          if (cTargetVal != null) cWindow.push(cTargetVal);
+          if (cWeightVal != null) cWindow.push(cWeightVal);
+
+          const kTargetVal = kTarget[i];
+          const kWeightVal = kY[i];
+          if (kTargetVal != null) kWindow.push(kTargetVal);
+          if (kWeightVal != null) kWindow.push(kWeightVal);
+        }
+
+        const cValues = cWindow.length ? cWindow : [0, 1];
+        const cMin = Math.min(...cValues);
+        const cMax = Math.max(...cValues);
+        const cSpan = cMax - cMin || 1;
+        yRange.start = cMin - cSpan * 0.6;
+        yRange.end = cMax;
+
+        const kValues = kWindow.length ? kWindow : [0, 1];
+        const kMin = Math.min(...kValues);
+        const kMax = Math.max(...kValues);
+        const kSpan = kMax - kMin || 1;
+        krystyRange.start = kMin;
+        krystyRange.end = kMax + kSpan * 0.6;
+      };
+
+      const applyWindow = (days) => {
+        if (days === "max") {
+          xRange.start = maxStart;
+          xRange.end = maxEnd;
+          updateAxisRanges(maxStart, maxEnd);
+        } else {
+          const daysNum = Number(days);
+          const start = Math.max(maxStart, maxEnd - daysNum * daysMs);
+          xRange.start = start;
+          xRange.end = maxEnd;
+          updateAxisRanges(start, maxEnd);
+        }
+        xRange.change.emit();
+        yRange.change.emit();
+        krystyRange.change.emit();
+      };
+
+      container.querySelectorAll("button[data-range]").forEach((button) => {
+        button.addEventListener("click", () => applyWindow(button.dataset.range));
+      });
+    };
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", setupRangeControls);
+    } else {
+      setupRangeControls();
+    }
 
   </script>
 {% endblock %}

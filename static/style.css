@@ -1,10 +1,12 @@
 :root {
   color-scheme: light;
-  --bg: #0f172a;
-  --surface: #111827;
-  --accent: #f97316;
-  --text: #f8fafc;
-  --muted: #cbd5f5;
+  --bg: #0d1b2a;
+  --surface: #1b263b;
+  --accent: #778da9;
+  --accent-2: #415a77;
+  --accent-3: #e0e1dd;
+  --text: #e0e1dd;
+  --muted: rgba(224, 225, 221, 0.75);
 }
 
 * {
@@ -14,7 +16,7 @@
 body {
   margin: 0;
   font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
-  background: linear-gradient(135deg, #0f172a, #1e293b);
+  background: linear-gradient(135deg, #0d1b2a, #1b263b);
   color: var(--text);
   position: relative;
 }
@@ -26,8 +28,8 @@ body {
 }
 
 .site-header {
-  background: rgba(15, 23, 42, 0.75);
-  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(13, 27, 42, 0.85);
+  border-bottom: 1px solid rgba(224, 225, 221, 0.2);
   backdrop-filter: blur(8px);
 }
 
@@ -60,7 +62,7 @@ body {
   height: auto;
   object-fit: contain;
   border-radius: 6px;
-  border: 1px solid rgba(148, 163, 184, 0.35);
+  border: 1px solid rgba(224, 225, 221, 0.35);
   display: block;
 }
 
@@ -77,9 +79,9 @@ body {
   max-width: min(78vw, 760px);
   padding: 0.22rem 0.45rem;
   border-radius: 6px;
-  background: rgba(15, 23, 42, 0.5);
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  color: rgba(203, 213, 245, 0.75);
+  background: rgba(13, 27, 42, 0.75);
+  border: 1px solid rgba(224, 225, 221, 0.18);
+  color: rgba(224, 225, 221, 0.75);
   font-size: 0.7rem;
   line-height: 1.2;
   white-space: nowrap;
@@ -91,7 +93,7 @@ body {
 button.bk-btn-warning,
 .bk-btn-warning span,
 button.bk-btn-warning span {
-  color: #111827 !important;
+  color: #0d1b2a !important;
   font-weight: 700 !important;
 }
 
@@ -99,7 +101,7 @@ button.bk-btn-warning span {
   background: var(--surface);
   border-radius: 24px;
   padding: 3rem;
-  box-shadow: 0 20px 45px rgba(15, 23, 42, 0.35);
+  box-shadow: 0 20px 45px rgba(13, 27, 42, 0.35);
 }
 
 .hero h2 {
@@ -114,7 +116,7 @@ button.bk-btn-warning span {
 .button {
   display: inline-block;
   background: var(--accent);
-  color: #111827;
+  color: #0d1b2a;
   padding: 0.75rem 1.5rem;
   border-radius: 999px;
   text-decoration: none;
@@ -129,10 +131,61 @@ button.bk-btn-warning span {
 }
 
 .card {
-  background: rgba(30, 41, 59, 0.75);
+  background: rgba(27, 38, 59, 0.7);
   border-radius: 18px;
   padding: 1.5rem;
-  border: 1px solid rgba(148, 163, 184, 0.15);
+  border: 1px solid rgba(224, 225, 221, 0.2);
+}
+
+.chart-fullbleed {
+  width: 100vw;
+  margin-left: calc(50% - 50vw);
+  margin-right: calc(50% - 50vw);
+  padding: 0 1rem;
+}
+
+.controls-card {
+  background: rgba(27, 38, 59, 0.7);
+  border-radius: 16px;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid rgba(224, 225, 221, 0.2);
+  margin-top: 0.6rem;
+  width: min(1100px, 92vw);
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.range-card {
+  width: min(1100px, 92vw);
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.range-controls {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+  flex-wrap: nowrap;
+}
+
+.range-button {
+  padding: 0.4rem 0.6rem;
+  min-width: 60px;
+  text-align: center;
+}
+
+@media (max-width: 768px) {
+  .range-button {
+    min-width: 46px;
+    padding: 0.3rem 0.4rem;
+    font-size: 0.78rem;
+  }
+}
+
+@media (min-width: 769px) {
+  .range-button {
+    min-width: 90px;
+  }
 }
 
 .card h3 {
@@ -153,8 +206,8 @@ button.bk-btn-warning span {
 
 .tabs {
   display: inline-flex;
-  background: rgba(15, 23, 42, 0.7);
-  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(13, 27, 42, 0.8);
+  border: 1px solid rgba(224, 225, 221, 0.2);
   border-radius: 999px;
   padding: 0.25rem;
   gap: 0.25rem;
@@ -174,7 +227,7 @@ button.bk-btn-warning span {
 
 .tab.active {
   background: var(--accent);
-  color: #111827;
+  color: #0d1b2a;
 }
 
 .input-form {
@@ -191,17 +244,17 @@ button.bk-btn-warning span {
 }
 
 .input-form input {
-  background: rgba(15, 23, 42, 0.7);
+  background: rgba(13, 27, 42, 0.7);
   color: var(--text);
-  border: 1px solid rgba(148, 163, 184, 0.35);
+  border: 1px solid rgba(224, 225, 221, 0.35);
   border-radius: 10px;
   padding: 0.5rem 0.7rem;
 }
 
 .input-form select {
-  background: rgba(15, 23, 42, 0.7);
+  background: rgba(13, 27, 42, 0.7);
   color: var(--text);
-  border: 1px solid rgba(148, 163, 184, 0.35);
+  border: 1px solid rgba(224, 225, 221, 0.35);
   border-radius: 10px;
   padding: 0.5rem 0.7rem;
 }
@@ -214,7 +267,7 @@ button.bk-btn-warning span {
 
 .divider {
   height: 1px;
-  background: rgba(148, 163, 184, 0.2);
+  background: rgba(224, 225, 221, 0.2);
   margin: 0.5rem 0;
 }
 
@@ -234,7 +287,7 @@ button.bk-btn-warning span {
 .editable-table th,
 .editable-table td {
   padding: 0.6rem 0.8rem;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+  border-bottom: 1px solid rgba(224, 225, 221, 0.2);
   text-align: left;
   white-space: nowrap;
 }
@@ -248,9 +301,9 @@ button.bk-btn-warning span {
 .editable-table input {
   width: 100%;
   min-width: 7rem;
-  background: rgba(15, 23, 42, 0.7);
+  background: rgba(13, 27, 42, 0.7);
   color: var(--text);
-  border: 1px solid rgba(148, 163, 184, 0.35);
+  border: 1px solid rgba(224, 225, 221, 0.35);
   border-radius: 8px;
   padding: 0.35rem 0.5rem;
 }
@@ -275,7 +328,7 @@ button.bk-btn-warning span {
 }
 
 .icon-dark {
-  color: #111827;
+  color: #0d1b2a;
 }
 
 .pagination {
@@ -299,13 +352,27 @@ button.bk-btn-warning span {
   gap: 1rem;
 }
 
+.nutrition-grid.single-column {
+  grid-template-columns: 1fr;
+}
+
 .nutrition-summary select {
   width: 100%;
-  background: rgba(15, 23, 42, 0.7);
+  background: rgba(13, 27, 42, 0.7);
   color: var(--text);
-  border: 1px solid rgba(148, 163, 184, 0.35);
+  border: 1px solid rgba(224, 225, 221, 0.35);
   border-radius: 10px;
   padding: 0.5rem 0.7rem;
+}
+
+.nutrition-summary textarea {
+  width: 100%;
+  background: rgba(13, 27, 42, 0.7);
+  color: var(--text);
+  border: 1px solid rgba(224, 225, 221, 0.35);
+  border-radius: 10px;
+  padding: 0.5rem 0.7rem;
+  resize: vertical;
 }
 
 .nutrition-form label {
@@ -316,9 +383,9 @@ button.bk-btn-warning span {
 }
 
 .nutrition-form input {
-  background: rgba(15, 23, 42, 0.7);
+  background: rgba(13, 27, 42, 0.7);
   color: var(--text);
-  border: 1px solid rgba(148, 163, 184, 0.35);
+  border: 1px solid rgba(224, 225, 221, 0.35);
   border-radius: 10px;
   padding: 0.5rem 0.7rem;
 }
@@ -330,16 +397,16 @@ button.bk-btn-warning span {
 }
 
 .previous-days-card {
-  background: rgba(30, 41, 59, 0.5);
-  border-color: rgba(148, 163, 184, 0.1);
+  background: rgba(27, 38, 59, 0.6);
+  border-color: rgba(224, 225, 221, 0.15);
 }
 
 .previous-day-group {
   margin-top: 0.8rem;
   padding: 0.8rem;
   border-radius: 12px;
-  background: rgba(15, 23, 42, 0.35);
-  border: 1px solid rgba(148, 163, 184, 0.12);
+  background: rgba(13, 27, 42, 0.55);
+  border: 1px solid rgba(224, 225, 221, 0.15);
 }
 
 .previous-day-header {
@@ -358,9 +425,9 @@ button.bk-btn-warning span {
 }
 
 .previous-day-add-form input {
-  background: rgba(15, 23, 42, 0.55);
+  background: rgba(13, 27, 42, 0.7);
   color: var(--text);
-  border: 1px solid rgba(148, 163, 184, 0.25);
+  border: 1px solid rgba(224, 225, 221, 0.25);
   border-radius: 8px;
   padding: 0.38rem 0.5rem;
 }
@@ -380,8 +447,8 @@ button.bk-btn-warning span {
 }
 
 .page-button {
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(224, 225, 221, 0.35);
+  background: rgba(13, 27, 42, 0.7);
   color: var(--text);
   border-radius: 8px;
   padding: 0.25rem 0.5rem;
@@ -390,7 +457,7 @@ button.bk-btn-warning span {
 
 .page-button.active {
   background: var(--accent);
-  color: #111827;
+  color: #0d1b2a;
   border-color: var(--accent);
 }
 
@@ -482,6 +549,18 @@ button.bk-btn-warning span {
     min-width: 720px;
   }
 
+  .tracker-page .chart-scroll {
+    overflow-x: hidden;
+  }
+
+  .tracker-page .chart-scroll .bk-root {
+    min-width: 0;
+  }
+
+  .chart-fullbleed {
+    padding: 0 0.5rem;
+  }
+
   .bk-legend,
   .bk-legend-item {
     display: none !important;
@@ -536,4 +615,17 @@ button.bk-btn-warning span {
   .chart-scroll .bk-root {
     min-width: 640px;
   }
+
+  .tracker-page .chart-scroll {
+    overflow-x: hidden;
+  }
+
+  .tracker-page .chart-scroll .bk-root {
+    min-width: 0;
+  }
+
+  .chart-fullbleed {
+    padding: 0 0.25rem;
+  }
+
 }
