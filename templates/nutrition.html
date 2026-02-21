@@ -9,50 +9,90 @@
     </div>
   </section>
 
-  <section class="card" style="margin-top: 1rem;">
-    <h3>{{ 'Christian' if active_person == 'christian' else 'Krysty' }} - Daily Log</h3>
-    <p style="margin-top: 0.2rem; color: var(--muted);">Date: {{ today }}</p>
+  <section class="nutrition-grid" style="margin-top: 1rem;">
+    <div class="card">
+      <h3>{{ 'Christian' if active_person == 'christian' else 'Krysty' }} - Daily Log</h3>
+      <p style="margin-top: 0.2rem; color: var(--muted);">Date: {{ today }}</p>
 
-    <form method="post" class="nutrition-form" style="margin-top: 0.9rem;">
-      <label>
-        Entry Date
-        <input type="date" name="entry_date" value="{{ today }}" max="{{ today }}" required />
-      </label>
-      <label>
-        Meal
-        <input type="text" name="meal" required />
-      </label>
-      <label>
-        Calories
-        <input type="number" name="calories" min="0" step="1" required />
-      </label>
-      <button class="button" type="submit">Add Entry</button>
-    </form>
+      <form method="post" class="nutrition-form" style="margin-top: 0.9rem;">
+        <label>
+          Entry Date
+          <input type="date" name="entry_date" value="{{ today }}" max="{{ today }}" required />
+        </label>
+        <label>
+          Meal
+          <input type="text" name="meal" required />
+        </label>
+        <label>
+          Calories
+          <input type="number" name="calories" min="0" step="1" required />
+        </label>
+        <button class="button" type="submit">Add Entry</button>
+      </form>
 
-    <table class="editable-table" style="margin-top: 1rem;">
-      <thead>
-        <tr>
-          <th>Day</th>
-          <th>Meal</th>
-          <th>Calories</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for entry in today_entries %}
+      <table class="editable-table" style="margin-top: 1rem;">
+        <thead>
           <tr>
-            <td>{{ entry['Date'] }}</td>
-            <td>{{ entry['Meal'] }}</td>
-            <td>{{ entry['Calories'] }}</td>
+            <th>Day</th>
+            <th>Meal</th>
+            <th>Calories</th>
           </tr>
-        {% else %}
-          <tr>
-            <td colspan="3">No entries for today yet.</td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {% for entry in today_entries %}
+            <tr>
+              <td>{{ entry['Date'] }}</td>
+              <td>{{ entry['Meal'] }}</td>
+              <td>{{ entry['Calories'] }}</td>
+            </tr>
+          {% else %}
+            <tr>
+              <td colspan="3">No entries for today yet.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
 
-    <div class="nutrition-total">Total Calories: {{ total_calories }}</div>
+      <div class="nutrition-total">Total Calories: {{ total_calories }}</div>
+    </div>
+
+    <div class="card nutrition-summary">
+      <h3>Groq Summary</h3>
+      {% if available_dates %}
+        <form method="post" style="margin-top: 0.75rem;">
+          <input type="hidden" name="action" value="summary" />
+          <label style="display: block; margin-bottom: 0.6rem;">
+            Date
+            <select name="summary_date" required>
+              {% for date_value in available_dates %}
+                <option value="{{ date_value }}" {{ 'selected' if date_value == summary_date else '' }}>{{ date_value }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <button class="button" type="submit">Generate Summary</button>
+        </form>
+      {% endif %}
+
+      {% if summary_generated_at %}
+        <p style="margin-top: 0.65rem; color: var(--muted); font-size: 0.85rem;">
+          Generated ({{ summary_source or 'auto' }}): {{ summary_generated_at }}
+        </p>
+      {% endif %}
+
+      {% if summary_error %}
+        <p style="margin-top: 0.75rem; color: #fca5a5;">{{ summary_error }}</p>
+      {% elif summary_text %}
+        <p style="margin-top: 0.75rem; white-space: pre-line;">{{ summary_text }}</p>
+      {% else %}
+        <p style="margin-top: 0.75rem; color: var(--muted);">
+          {% if available_dates %}
+            Summary runs for previous days only.
+          {% else %}
+            Add entries on a previous day to unlock summaries.
+          {% endif %}
+        </p>
+      {% endif %}
+    </div>
   </section>
 
   <section class="card previous-days-card" style="margin-top: 1rem;">

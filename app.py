@@ -4,9 +4,14 @@ import csv
 import json
 import os
 import shutil
+import subprocess
+import urllib.error
+import urllib.request
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
+
+from dotenv import load_dotenv
 
 from bokeh.layouts import column as bokeh_column, row as bokeh_row
 from bokeh.embed import components
@@ -14,6 +19,8 @@ from bokeh.models import Button, ColumnDataSource, CustomJS, DaysTicker, HoverTo
 from bokeh.plotting import figure
 from bokeh.resources import CDN
 from flask import Flask, redirect, render_template, request, send_from_directory, url_for
+
+load_dotenv()
 
 CSV_COLUMNS = [
 	"Christian Weight",
@@ -36,6 +43,11 @@ DEFAULT_DATA_DIR = (
 DATA_DIR = Path(os.getenv("DATA_DIR", DEFAULT_DATA_DIR))
 EASTERN_TZ = ZoneInfo("America/New_York")
 SYNC_METADATA_PATH = Path(__file__).resolve().parent / ".fly_data_sync.json"
+LOCAL_SYNC_FROM_FLY = os.getenv("LOCAL_SYNC_FROM_FLY", "1") == "1"
+FLY_APP_NAME = os.getenv("FLY_APP_NAME", "fittinthispizza")
+FLY_VOLUME_PATH = os.getenv("FLY_VOLUME_PATH", "/data")
+GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
 
 
 def _build_data_sync_note() -> str:
@@ -57,6 +69,42 @@ def _build_data_sync_note() -> str:
 	if machine:
 		return f"Local app · pulled {pulled_at} from {volume} (machine {machine})"
 	return f"Local app · pulled {pulled_at} from {volume}"
+
+
+def _maybe_sync_from_fly() -> None:
+	if not LOCAL_SYNC_FROM_FLY:
+		return
+
+	if os.getenv("FLY_REGION"):
+		return
+
+	files = (
+		"fitness_data.csv",
+		"fitness_data_prototype.csv",
+		"nutrition_christian.csv",
+		"nutrition_krysty.csv",
+	)
+	synced = False
+	for filename in files:
+		command = f"cat {FLY_VOLUME_PATH}/{filename}"
+		result = subprocess.run(
+			["fly", "ssh", "console", "-C", command, "-a", FLY_APP_NAME],
+			capture_output=True,
+			text=True,
+		)
+		if result.returncode != 0:
+			continue
+		(DATA_DIR / filename).write_text(result.stdout, encoding="utf-8")
+		synced = True
+
+	if not synced:
+		return
+
+	metadata = {
+		"pulled_at_utc": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+		"source_volume": FLY_VOLUME_PATH,
+	}
+	SYNC_METADATA_PATH.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
 
 
 def _read_rows(data_path: Path) -> list[dict[str, str]]:
@@ -112,12 +160,100 @@ def _ensure_seed_data_file(data_path: Path, seed_filename: str) -> None:
 	_write_rows(data_path, [])
 
 
+def _ensure_nutrition_file(data_path: Path) -> None:
+	if data_path.exists():
+		return
+	_write_nutrition_rows(data_path, [])
+
+
 def _nutrition_data_path(person: str) -> Path:
 	return DATA_DIR / f"nutrition_{person}.csv"
 
 
 def _nutrition_now() -> datetime:
 	return datetime.now(EASTERN_TZ)
+
+
+def _call_groq(messages: list[dict[str, str]]) -> str:
+	api_key = os.getenv("GROQ_API_KEY", "")
+	if os.getenv("GROQ_DEBUG", "0") == "1":
+		print(
+			f"GROQ_DEBUG key_loaded={bool(api_key)} length={len(api_key)}",
+			flush=True,
+		)
+	if not api_key:
+		raise RuntimeError("Missing GROQ_API_KEY")
+
+	payload = {
+		"model": GROQ_MODEL,
+		"messages": messages,
+		"temperature": 0.2,
+		"max_tokens": 300,
+	}
+	data = json.dumps(payload).encode("utf-8")
+	request = urllib.request.Request(
+		GROQ_API_URL,
+		data=data,
+		headers={
+			"Authorization": f"Bearer {api_key}",
+			"Content-Type": "application/json",
+		},
+		method="POST",
+	)
+	try:
+		with urllib.request.urlopen(request, timeout=20) as response:
+			result = json.loads(response.read().decode("utf-8"))
+			return result["choices"][0]["message"]["content"].strip()
+	except urllib.error.HTTPError as exc:
+		body = ""
+		try:
+			body = exc.read().decode("utf-8")
+		except (OSError, UnicodeDecodeError):
+			body = ""
+		raise RuntimeError(
+			f"Groq HTTP {exc.code}: {body or exc.reason}"
+		) from exc
+
+
+def _summarize_nutrition(
+	person: str,
+	entry_date: str,
+	entries: list[dict[str, str]],
+	total_calories: int,
+) -> tuple[str | None, str | None]:
+	if not entries:
+		return None, "No entries found for that date."
+
+	lines = []
+	for entry in entries:
+		meal = entry.get("Meal", "").strip()
+		calories = entry.get("Calories", "").strip()
+		if not meal and not calories:
+			continue
+		lines.append(f"- {meal}: {calories} calories")
+
+	prompt = (
+		"You are a helpful nutrition assistant. Summarize the day in 3-5 sentences. "
+		"Mention total calories and any patterns. If calories seem low or high, "
+		"say so gently. No medical advice."
+	)
+	user_content = (
+		f"Person: {person}\n"
+		f"Date: {entry_date}\n"
+		f"Total calories: {total_calories}\n"
+		"Entries:\n"
+		+ "\n".join(lines)
+	)
+	try:
+		summary = _call_groq(
+			[
+				{"role": "system", "content": prompt},
+				{"role": "user", "content": user_content},
+			]
+		)
+		return summary, None
+	except (RuntimeError, urllib.error.URLError, KeyError, json.JSONDecodeError) as exc:
+		return None, f"Groq error: {exc}"
 
 
 def _read_nutrition_rows(data_path: Path) -> list[dict[str, str]]:
@@ -151,6 +287,81 @@ def _add_nutrition_entry(
 		}
 	)
 	_write_nutrition_rows(data_path, rows)
+
+
+def _render_nutrition_page(
+	person: str,
+	today: str,
+	all_entries: list[dict[str, str]],
+	summary_text: str | None,
+	summary_error: str | None,
+	summary_date: str,
+	available_dates: list[str] | None,
+	summary_generated_at: str | None,
+	summary_source: str | None,
+) -> str:
+	today_entries = [
+		row
+		for row in all_entries
+		if row.get("Date", "") == today
+	]
+	previous_by_date: dict[str, list[dict[str, str]]] = {}
+	for row in all_entries:
+		date_value = row.get("Date", "")
+		if not date_value or date_value == today:
+			continue
+		previous_by_date.setdefault(date_value, []).append(row)
+
+	previous_days: list[dict[str, object]] = []
+	for date_value in sorted(previous_by_date.keys(), reverse=True):
+		entries = previous_by_date[date_value]
+		day_total = 0
+		for row in entries:
+			try:
+				day_total += int(row.get("Calories", "0"))
+			except ValueError:
+				continue
+		previous_days.append(
+			{
+				"date": date_value,
+				"entries": entries,
+				"total_calories": day_total,
+			}
+		)
+	total_calories = 0
+	for row in today_entries:
+		try:
+			total_calories += int(row.get("Calories", "0"))
+		except ValueError:
+			continue
+
+	if available_dates is None:
+		available_dates = sorted(
+			{
+				row.get("Date", "")
+				for row in all_entries
+				if row.get("Date", "") and row.get("Date", "") != today
+			},
+			reverse=True,
+		)
+		if summary_date not in available_dates:
+			available_dates.insert(0, summary_date)
+
+	return render_template(
+		"nutrition.html",
+		title="Nutrition",
+		active_person=person,
+		today=today,
+		today_entries=today_entries,
+		previous_days=previous_days,
+		total_calories=total_calories,
+		summary_text=summary_text,
+		summary_error=summary_error,
+		summary_date=summary_date,
+		available_dates=available_dates,
+		summary_generated_at=summary_generated_at,
+		summary_source=summary_source,
+	)
 
 
 def _upsert_weight(
@@ -821,7 +1032,7 @@ krysty_range.change.emit();
 	script, div = components(plot_view)
 	return render_template(
 		"progress.html",
-		title="Fit'ness Whole Pizza in my Mouth",
+		title="Fittin' this Whole Pizza in my Mouth",
 		script=script,
 		div=div,
 		bokeh_js=CDN.js_files,
@@ -833,8 +1044,11 @@ krysty_range.change.emit();
 def create_app() -> Flask:
 	app = Flask(__name__)
 	DATA_DIR.mkdir(parents=True, exist_ok=True)
+	_maybe_sync_from_fly()
 	_ensure_seed_data_file(DATA_DIR / "fitness_data.csv", "fitness_data.csv")
 	_ensure_seed_data_file(DATA_DIR / "fitness_data_prototype.csv", "fitness_data_prototype.csv")
+	_ensure_nutrition_file(_nutrition_data_path("christian"))
+	_ensure_nutrition_file(_nutrition_data_path("krysty"))
 
 	@app.context_processor
 	def inject_data_dir() -> dict[str, str]:
@@ -874,7 +1088,68 @@ def create_app() -> Flask:
 		today = _nutrition_now().strftime("%Y-%m-%d")
 
 		data_path = _nutrition_data_path(person)
+		all_entries = _read_nutrition_rows(data_path)
+		previous_dates = sorted(
+			{
+				row.get("Date", "")
+				for row in all_entries
+				if row.get("Date", "") and row.get("Date", "") != today
+			},
+			reverse=True,
+		)
 		if request.method == "POST":
+			action = request.form.get("action", "add").strip().lower()
+			if action == "summary":
+				summary_date = request.form.get("summary_date", "").strip() or today
+				try:
+					summary_date = datetime.strptime(summary_date, "%Y-%m-%d").strftime("%Y-%m-%d")
+				except ValueError:
+					summary_date = today
+
+				if not previous_dates:
+					return _render_nutrition_page(
+						person,
+						today,
+						all_entries,
+						None,
+						"No previous days with entries yet.",
+						today,
+						previous_dates,
+						datetime.now(EASTERN_TZ).strftime("%Y-%m-%d %H:%M:%S"),
+						"manual",
+					)
+				if summary_date not in previous_dates:
+					summary_date = previous_dates[0]
+				entries_for_date = [
+					row
+					for row in all_entries
+					if row.get("Date", "") == summary_date
+				]
+				summary_total = 0
+				for row in entries_for_date:
+					try:
+						summary_total += int(row.get("Calories", "0"))
+					except ValueError:
+						continue
+				summary_text, summary_error = _summarize_nutrition(
+					person,
+					summary_date,
+					entries_for_date,
+					summary_total,
+				)
+
+				return _render_nutrition_page(
+					person,
+					today,
+					all_entries,
+					summary_text,
+					summary_error,
+					summary_date,
+					previous_dates,
+					datetime.now(EASTERN_TZ).strftime("%Y-%m-%d %H:%M:%S"),
+					"manual",
+				)
+
 			meal = request.form.get("meal", "").strip()
 			calories_input = request.form.get("calories", "").strip()
 			entry_date_input = request.form.get("entry_date", "").strip()
@@ -893,50 +1168,46 @@ def create_app() -> Flask:
 					_add_nutrition_entry(data_path, meal, calories, entry_date)
 			return redirect(url_for("nutrition", person=person))
 
-		all_entries = _read_nutrition_rows(data_path)
-		today_entries = [
-			row
-			for row in all_entries
-			if row.get("Date", "") == today
-		]
-		previous_by_date: dict[str, list[dict[str, str]]] = {}
-		for row in all_entries:
-			date_value = row.get("Date", "")
-			if not date_value or date_value == today:
-				continue
-			previous_by_date.setdefault(date_value, []).append(row)
-
-		previous_days: list[dict[str, object]] = []
-		for date_value in sorted(previous_by_date.keys(), reverse=True):
-			entries = previous_by_date[date_value]
-			day_total = 0
-			for row in entries:
+		summary_text = None
+		summary_error = None
+		summary_date = previous_dates[0] if previous_dates else today
+		summary_generated_at = None
+		summary_source = None
+		if previous_dates:
+			entries_for_date = [
+				row
+				for row in all_entries
+				if row.get("Date", "") == summary_date
+			]
+			summary_total = 0
+			for row in entries_for_date:
 				try:
-					day_total += int(row.get("Calories", "0"))
+					summary_total += int(row.get("Calories", "0"))
 				except ValueError:
 					continue
-			previous_days.append(
-				{
-					"date": date_value,
-					"entries": entries,
-					"total_calories": day_total,
-				}
+			summary_text, summary_error = _summarize_nutrition(
+				person,
+				summary_date,
+				entries_for_date,
+				summary_total,
 			)
-		total_calories = 0
-		for row in today_entries:
-			try:
-				total_calories += int(row.get("Calories", "0"))
-			except ValueError:
-				continue
+			summary_generated_at = datetime.now(EASTERN_TZ).strftime("%Y-%m-%d %H:%M:%S")
+			summary_source = "auto"
+		else:
+			summary_error = "No previous days with entries yet."
+			summary_generated_at = datetime.now(EASTERN_TZ).strftime("%Y-%m-%d %H:%M:%S")
+			summary_source = "auto"
 
-		return render_template(
-			"nutrition.html",
-			title="Nutrition",
-			active_person=person,
-			today=today,
-			today_entries=today_entries,
-			previous_days=previous_days,
-			total_calories=total_calories,
+		return _render_nutrition_page(
+			person,
+			today,
+			all_entries,
+			summary_text,
+			summary_error,
+			summary_date,
+			previous_dates,
+			summary_generated_at,
+			summary_source,
 		)
 
 	return app

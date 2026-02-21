@@ -293,6 +293,21 @@ button.bk-btn-warning span {
   align-items: end;
 }
 
+.nutrition-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.nutrition-summary select {
+  width: 100%;
+  background: rgba(15, 23, 42, 0.7);
+  color: var(--text);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 10px;
+  padding: 0.5rem 0.7rem;
+}
+
 .nutrition-form label {
   display: grid;
   gap: 0.4rem;
@@ -355,6 +370,10 @@ button.bk-btn-warning span {
     grid-template-columns: 1fr;
   }
 
+  .nutrition-grid {
+    grid-template-columns: 1fr;
+  }
+
   .previous-day-add-form {
     grid-template-columns: 1fr;
   }
@@ -365,7 +384,7 @@ button.bk-btn-warning span {
   background: rgba(15, 23, 42, 0.7);
   color: var(--text);
   border-radius: 8px;
-  padding: 0.35rem 0.7rem;
+  padding: 0.25rem 0.5rem;
   cursor: pointer;
 }
 
