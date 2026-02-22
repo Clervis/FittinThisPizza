@@ -9,136 +9,399 @@
     </div>
   </section>
 
-  <section class="nutrition-grid single-column" style="margin-top: 1rem;">
-    <div class="card">
-      <h3>{{ 'Christian' if active_person == 'christian' else 'Krysty' }} - Daily Log</h3>
-      <p style="margin-top: 0.2rem; color: var(--muted);">Date: {{ today }}</p>
+  <section class="nutrition-days" style="margin-top: 1rem;">
+    {% for day in day_logs %}
+      <div class="nutrition-day">
+        <div class="card nutrition-log-card">
+          <div class="nutrition-log-header">
+            <div>
+              <h3>{{ 'Christian' if active_person == 'christian' else 'Krysty' }} - Daily Log</h3>
+              <p class="nutrition-date">Date: {{ day.date }}</p>
+            </div>
+            <div class="nutrition-total">Total Calories: {{ day.total_calories }}</div>
+          </div>
 
-      <form method="post" class="nutrition-form" style="margin-top: 0.9rem;">
-        <label>
-          Entry Date
-          <input type="date" name="entry_date" value="{{ today }}" max="{{ today }}" required />
-        </label>
-        <label>
-          Meal
-          <input type="text" name="meal" required />
-        </label>
-        <label>
-          Calories
-          <input type="number" name="calories" min="0" step="1" required />
-        </label>
-        <button class="button" type="submit">Add Entry</button>
-      </form>
+          <form method="post" class="nutrition-form" style="margin-top: 0.9rem;">
+            <input type="hidden" name="entry_date" value="{{ day.date }}" />
+            <label>
+              Meal
+              <input type="text" name="meal" required />
+            </label>
+            <label>
+              Calories
+              <input type="number" name="calories" min="0" step="1" required />
+            </label>
+            <button class="button" type="submit">Add Entry</button>
+          </form>
 
-      <table class="editable-table" style="margin-top: 1rem;">
-        <thead>
-          <tr>
-            <th>Day</th>
-            <th>Meal</th>
-            <th>Calories</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for entry in today_entries %}
-            <tr>
-              <td>{{ entry['Date'] }}</td>
-              <td>{{ entry['Meal'] }}</td>
-              <td>{{ entry['Calories'] }}</td>
-            </tr>
-          {% else %}
-            <tr>
-              <td colspan="3">No entries for today yet.</td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-
-      <div class="nutrition-total">Total Calories: {{ total_calories }}</div>
-    </div>
-
-    <div class="card nutrition-summary">
-      <h3>Groq Summary</h3>
-      {% if profile %}
-        <p style="margin-top: 0.4rem; color: var(--muted);">
-          Age: {{ profile.age }} &middot; Height: {{ profile.height }}
-        </p>
-      {% endif %}
-      <form method="post" style="margin-top: 0.75rem;">
-        <input type="hidden" name="action" value="summary" />
-        {% if available_dates %}
-          <label style="display: block; margin-bottom: 0.6rem;">
-            Date
-            <select name="summary_date" required>
-              {% for date_value in available_dates %}
-                <option value="{{ date_value }}" {{ 'selected' if date_value == summary_date else '' }}>{{ date_value }}</option>
-              {% endfor %}
-            </select>
-          </label>
-        {% else %}
-          <input type="hidden" name="summary_date" value="{{ summary_date }}" />
-        {% endif %}
-        <label style="display: block; margin-bottom: 0.6rem;">
-          Prompt
-          <textarea name="prompt_text" rows="4" required>{{ prompt_text }}</textarea>
-        </label>
-        <button class="button" type="submit">Generate Summary</button>
-      </form>
-
-      {% if summary_generated_at %}
-        <p style="margin-top: 0.65rem; color: var(--muted); font-size: 0.85rem;">
-          Generated ({{ summary_source or 'auto' }}): {{ summary_generated_at }}
-        </p>
-      {% endif %}
-
-      {% if summary_error %}
-        <p style="margin-top: 0.75rem; color: #fca5a5;">{{ summary_error }}</p>
-      {% elif summary_text %}
-        <p style="margin-top: 0.75rem; white-space: pre-line;">{{ summary_text }}</p>
-      {% else %}
-        <p style="margin-top: 0.75rem; color: var(--muted);">
-          {% if available_dates %}
-            Summary runs for previous days only.
-          {% else %}
-            Add entries on a previous day to unlock summaries.
-          {% endif %}
-        </p>
-      {% endif %}
-    </div>
-  </section>
-
-  <section class="card previous-days-card" style="margin-top: 1rem;">
-    <h3>Previous Days</h3>
-    {% for day in previous_days %}
-      <div class="previous-day-group">
-        <div class="previous-day-header">
-          <span>{{ day.date }}</span>
-          <span>Total Calories: {{ day.total_calories }}</span>
-        </div>
-        <form method="post" class="previous-day-add-form" style="margin-top: 0.55rem;">
-          <input type="hidden" name="entry_date" value="{{ day.date }}" />
-          <input type="text" name="meal" placeholder="Meal" required />
-          <input type="number" name="calories" min="0" step="1" placeholder="Calories" required />
-          <button class="button button-small" type="submit">Add Entry</button>
-        </form>
-        <table class="editable-table" style="margin-top: 0.6rem;">
-          <thead>
-            <tr>
-              <th>Meal</th>
-              <th>Calories</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for entry in day.entries %}
+          <table class="editable-table" style="margin-top: 1rem;">
+            <thead>
               <tr>
-                <td>{{ entry['Meal'] }}</td>
-                <td>{{ entry['Calories'] }}</td>
+                <th>Meal</th>
+                <th>Calories</th>
               </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {% for entry in day.entries %}
+                <tr class="{{ 'late-entry' if entry.late_entry else '' }}">
+                  <td class="meal-cell">{{ entry['Meal'] }}</td>
+                  <td>{{ entry['Calories'] }}</td>
+                </tr>
+              {% else %}
+                <tr>
+                  <td colspan="2">No entries for this day yet.</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="card nutrition-summary-card">
+          {% if day.description and day.macros and day.other_nutrients %}
+            <p class="nutrition-description">{{ day.description }}</p>
+            <div
+              class="nutrition-charts"
+              data-chart-id="{{ day.chart_id }}"
+              data-target="{{ day.target }}"
+              data-total-calories="{{ day.total_calories }}"
+              data-macros='{{ day.macros | tojson }}'
+              data-nutrients='{{ day.other_nutrients | tojson }}'
+            >
+              <div class="nutrition-chart macro-chart">
+                <canvas id="macro-chart-{{ day.chart_id }}"></canvas>
+              </div>
+              <div class="nutrition-chart">
+                <canvas id="nutrient-chart-{{ day.chart_id }}"></canvas>
+              </div>
+            </div>
+          {% else %}
+            <p class="nutrition-muted">Summary will appear after targets are met.</p>
+          {% endif %}
+        </div>
       </div>
-    {% else %}
-      <p style="margin-top: 0.7rem; color: var(--muted);">No previous entries yet.</p>
     {% endfor %}
   </section>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      const dailyValues = {{ daily_values | tojson }};
+      const donutColors = {
+        protein: "#38bdf8",
+        carbs: "#f59e0b",
+        fat: "#f43f5e",
+      };
+      const unitMap = {
+        Energy: "kcal",
+        Protein: "g",
+        Carbs: "g",
+        Fat: "g",
+        Fats: "g",
+        Salt: "mg",
+        Fiber: "g",
+        A: "mcg",
+        B6: "mg",
+        B12: "mcg",
+        D: "mcg",
+        Calcium: "mg",
+        Potassium: "mg",
+        Iron: "mg",
+        Magnesium: "mg",
+        "Omega-3": "mg",
+      };
+      const chartNodes = document.querySelectorAll(".nutrition-charts");
+      chartNodes.forEach((node) => {
+        const chartId = node.dataset.chartId;
+        if (!chartId) return;
+
+        const macros = JSON.parse(node.dataset.macros || "{}");
+        const nutrients = JSON.parse(node.dataset.nutrients || "[]");
+        const target = Number(node.dataset.target || "0") || 0;
+        const totalCalories = Number(node.dataset.totalCalories || "0") || 0;
+        if (!macros || !Object.keys(macros).length) return;
+
+        const macroCanvas = document.getElementById(`macro-chart-${chartId}`);
+        if (macroCanvas) {
+          const macroValues = [macros.protein || 0, macros.carbs || 0, macros.fat || 0];
+          const macroLabels = ["Protein", "Carbs", "Fat"];
+          const macroDaily = [
+            Number(dailyValues.Protein || 0),
+            Number(dailyValues["Total carbohydrate"] || 0),
+            Number(dailyValues.Fat || 0),
+          ];
+          new Chart(macroCanvas, {
+            type: "doughnut",
+            data: {
+              labels: ["Protein", "Carbs", "Fat"],
+              datasets: [
+                {
+                  data: [macros.protein || 0, macros.carbs || 0, macros.fat || 0],
+                  backgroundColor: [donutColors.protein, donutColors.carbs, donutColors.fat],
+                  borderWidth: 0,
+                },
+              ],
+            },
+            options: {
+              maintainAspectRatio: false,
+              plugins: {
+                legend: {
+                  position: "right",
+                  labels: {
+                    color: "#e0e1dd",
+                  },
+                },
+                datalabels: {
+                  color: "#e0e1dd",
+                  font: {
+                    weight: "600",
+                  },
+                  formatter: (value, context) => {
+                    const data = context.dataset.data || [];
+                    const total = data.reduce((sum, item) => sum + item, 0);
+                    if (!total) return "";
+                    return `${Math.round((value / total) * 100)}%`;
+                  },
+                },
+                tooltip: {
+                  callbacks: {
+                    label: (context) => {
+                      const idx = context.dataIndex || 0;
+                      const value = macroValues[idx] || 0;
+                      const dv = macroDaily[idx] || 0;
+                      const pct = dv > 0 ? (value / dv) * 100 : 0;
+                      return `${value.toFixed(1)}${unitMap[macroLabels[idx]]} (${pct.toFixed(1)}%DV)`;
+                    },
+                  },
+                },
+              },
+            },
+            plugins: [ChartDataLabels],
+          });
+        }
+
+        const nutrientCanvas = document.getElementById(`nutrient-chart-${chartId}`);
+        if (nutrientCanvas && nutrients.length) {
+          const nutrientMap = new Map(
+            nutrients.map((item) => [item.label || "", Number(item.value || 0)])
+          );
+          const categoryColors = {
+            fiber: "#c4a484",
+            salt: "#f97316",
+            vitamins: "#a3e635",
+            minerals: "#94a3b8",
+            omega: "#06b6d4",
+          };
+          const abbreviations = {
+            Calcium: "Ca",
+            Potassium: "K",
+            Sodium: "Salt",
+            Magnesium: "Mg",
+            Iron: "Fe",
+            Zinc: "Zn",
+            Energy: "Energy",
+            Protein: "Protein",
+            Carbs: "Carbs",
+            Fats: "Fats",
+            Fiber: "Fiber",
+            "Omega-3": "Omega-3",
+            A: "A",
+            B6: "B6",
+            B12: "B12",
+            D: "D",
+          };
+
+          const normalizeLabel = (label) => label.replace(/\s*\([^)]*\)/g, "").trim();
+          const dailyValueKey = (label) => normalizeLabel(label);
+          const dailyValueOverrides = {
+            Protein: "Protein",
+            Carbs: "Total carbohydrate",
+            Fats: "Fat",
+            Salt: "Sodium",
+            Fiber: "Dietary Fiber",
+            A: "Vitamin A",
+            B6: "Vitamin B6",
+            B12: "Vitamin B12",
+            D: "Vitamin D",
+            Calcium: "Calcium",
+            Potassium: "Potassium",
+            Iron: "Iron",
+            Magnesium: "Magnesium",
+            "Omega-3": "Omega-3",
+          };
+
+          const orderedKeys = [
+            { key: "Energy", source: "Energy" },
+            { key: "Protein", source: "Protein (g)" },
+            { key: "Carbs", source: "Carbohydrates (g)" },
+            { key: "Fats", source: "Fat (g)" },
+            { key: "Salt", source: "Sodium (mg)" },
+            { key: "Fiber", source: "Fiber (g)" },
+            { key: "A", source: "Vitamin A (mcg)" },
+            { key: "B6", source: "Vitamin B6 (mg)" },
+            { key: "B12", source: "Vitamin B12 (mcg)" },
+            { key: "D", source: "Vitamin D (mcg)" },
+            { key: "Calcium", source: "Calcium (mg)" },
+            { key: "Potassium", source: "Potassium (mg)" },
+            { key: "Iron", source: "Iron (mg)" },
+            { key: "Magnesium", source: "Magnesium (mg)" },
+            { key: "Omega-3", source: "Omega-3 (mg)" },
+          ];
+
+          const labels = [];
+          const values = [];
+          const colors = [];
+          const rawValues = [];
+          const dvPercents = [];
+          const dvUnits = [];
+          orderedKeys.forEach((item) => {
+            const sourceLabel = item.source;
+            const baseLabel = dailyValueKey(sourceLabel);
+            const displayLabel = abbreviations[item.key] || abbreviations[baseLabel] || baseLabel;
+            let rawValue = 0;
+
+            if (sourceLabel === "Protein (g)") rawValue = macros.protein || 0;
+            else if (sourceLabel === "Carbohydrates (g)") rawValue = macros.carbs || 0;
+            else if (sourceLabel === "Fat (g)") rawValue = macros.fat || 0;
+            else if (item.key === "Energy") rawValue = totalCalories;
+            else rawValue = nutrientMap.get(sourceLabel) || 0;
+
+            let percent = 0;
+            if (item.key === "Energy") {
+              if (target > 0) percent = (rawValue / target) * 100;
+            } else {
+              const dvKey = dailyValueOverrides[item.key] || baseLabel;
+              const dv = Number(dailyValues[dvKey] || 0);
+              if (dv > 0) percent = (rawValue / dv) * 100;
+            }
+
+            labels.push(displayLabel);
+            values.push(percent);
+            rawValues.push(rawValue);
+            dvPercents.push(percent);
+            dvUnits.push(unitMap[item.key] || "");
+
+            if (item.key === "Protein") colors.push(donutColors.protein);
+            else if (item.key === "Carbs") colors.push(donutColors.carbs);
+            else if (item.key === "Fats") colors.push(donutColors.fat);
+            else if (item.key === "Fiber") colors.push(categoryColors.fiber);
+            else if (item.key === "Salt") colors.push(categoryColors.salt);
+            else if (["A", "B6", "B12", "D"].includes(item.key)) colors.push(categoryColors.vitamins);
+            else if (["Calcium", "Potassium", "Iron", "Magnesium"].includes(item.key)) colors.push(categoryColors.minerals);
+            else if (item.key === "Omega-3") colors.push(categoryColors.omega);
+            else colors.push("#778da9");
+          });
+
+          const energyIndex = labels.indexOf("Energy");
+          const energyProteinPct = target > 0 ? ((macros.protein || 0) * 4 / target) * 100 : 0;
+          const energyCarbsPct = target > 0 ? ((macros.carbs || 0) * 4 / target) * 100 : 0;
+          const energyFatPct = target > 0 ? ((macros.fat || 0) * 9 / target) * 100 : 0;
+
+          const baseValues = values.map((value, idx) => (idx === energyIndex ? 0 : value));
+
+          const energyProtein = values.map((_, idx) => (idx === energyIndex ? energyProteinPct : 0));
+          const energyCarbs = values.map((_, idx) => (idx === energyIndex ? energyCarbsPct : 0));
+          const energyFat = values.map((_, idx) => (idx === energyIndex ? energyFatPct : 0));
+
+          new Chart(nutrientCanvas, {
+            type: "bar",
+            data: {
+              labels,
+              datasets: [
+                {
+                  label: "Nutrients",
+                  data: baseValues,
+                  backgroundColor: colors,
+                  stack: "nutrients",
+                },
+                {
+                  label: "Energy Protein",
+                  data: energyProtein,
+                  backgroundColor: donutColors.protein,
+                  stack: "energy",
+                },
+                {
+                  label: "Energy Carbs",
+                  data: energyCarbs,
+                  backgroundColor: donutColors.carbs,
+                  stack: "energy",
+                },
+                {
+                  label: "Energy Fat",
+                  data: energyFat,
+                  backgroundColor: donutColors.fat,
+                  stack: "energy",
+                },
+              ],
+            },
+            options: {
+              maintainAspectRatio: false,
+              plugins: {
+                legend: {
+                  display: false,
+                },
+                tooltip: {
+                  callbacks: {
+                    label: (context) => {
+                      const idx = context.dataIndex || 0;
+                      if (idx === energyIndex) {
+                        const pct = dvPercents[idx] || 0;
+                        return `${rawValues[idx].toFixed(1)}${dvUnits[idx]} (${pct.toFixed(1)}%DV)`;
+                      }
+                      if (!context.raw) return "";
+                      const pct = dvPercents[idx] || 0;
+                      return `${rawValues[idx].toFixed(1)}${dvUnits[idx]} (${pct.toFixed(1)}%DV)`;
+                    },
+                  },
+                },
+                annotation: {
+                  annotations: {
+                    targetLine: {
+                      type: "line",
+                      yMin: 100,
+                      yMax: 100,
+                      borderColor: "#e0e1dd",
+                      borderWidth: 2,
+                      borderDash: [4, 4],
+                      label: {
+                        display: true,
+                        content: "Target",
+                        position: "end",
+                        color: "#e0e1dd",
+                      },
+                    },
+                  },
+                },
+              },
+              scales: {
+                x: {
+                  stacked: true,
+                  ticks: {
+                    color: "#e0e1dd",
+                    font: {
+                      size: 9,
+                    },
+                  },
+                  grid: {
+                    display: false,
+                  },
+                },
+                y: {
+                  stacked: true,
+                  max: 150,
+                  ticks: {
+                    color: "#e0e1dd",
+                  },
+                  grid: {
+                    color: "rgba(224, 225, 221, 0.15)",
+                  },
+                },
+              },
+            },
+          });
+        }
+      });
+    });
+  </script>
 {% endblock %}

@@ -1,0 +1,43 @@
+Given the appended name, diet log, and context (below), provide a description of the daily log in terms of targets and general balance (based on Dietary Guidelines for Americans, 2025-2030), and a broken down list of nutritional value as a python list. Infer the ingredients of each dish listed. If more detail is needed to infer nutritional value, feel free to encourage more detail. Keep the description 30 words or less, but have it be a useful commentary on eating habits (don't just state what the calories are). In the list include estimated grams of protein, grams of carbohydrates, grams of fat; sodium; fiber; vitamins A, B6, B12, C, D; and calcium, potassium, magnesium, iron, and zinc.
+
+Context for Christian: Christian is a 42 year-old male on a 1200 calorie diet, trying to lose 2.3 lbs per week. Christian is 6'0" starting weight of 263 targeting 200 by the end of 2026. Christian is currently taking two daily supplements: Kirkland Signature Adult Multivitamin (A 1050 mcg, C 90 mg, D 10mcg, E 13.5 mg, K 25 mcg, Thiamin 1.5 mg, Riboflavian 1.7 mg, Niacin 20 mg, B6 2 mg, Folate 833 mcg, B12 6 mcg, Biotin 30 mcg, Pantothenic Acid 10 mg, Calcium 200mg, Iron 18 mg, Phosphorus 109 mg, Iodine 150 mcg, Magnesium 100 mg, Zinc 11 mg, Selenium 55 mcg, Copper .9 mg, Manganese 2.3 mg, Chromium 35 mcg, Molybdenum 45 mcg, Chloride 72 mg, Potassium 80mg) and Omega-3 Fish Oil (1250 mg).
+
+Context for Krysty: Krysty is a 41 year-old female on a 1400 calorie diet, trying to lose .4 lbs per week. Krysty has a Vitamin D deficiency. Krysty is 5'4" starting weight of 138 targeting 120 by the end of 2026. Krysty is currently taking three daily supplements: Bioner Lab Calcium Magnesium Zinc (Calcium 600 mg, Magnesium 300 mg, Zinc 7.5 mg, D3 25 mcg, K2 100 mcg, Sodium 10mg), Nutrafol Women (A 1500 mcg, C 100mg, D 62.5 mg, E 3.5mg, Biotin 3000 mcg, Iodin 225 mcg, Zinc 25 mg, Selenium 200 mcg, Sodium 5 mg), and Omega-3 Fish Oil (1250 mg).
+
+Daily values based on the 2000 calorie diet:
+Biotin 30mcg
+Calcium 1300mg
+Chloride 2300mg
+Choline 550mg
+Cholesterol 300mg
+Chromium 35mcg
+Copper 0.9mg
+Dietary Fiber 28g
+Fat 78g
+Folate/Folic Acid 400mcg
+Iodine 150mcg
+Iron 18mg
+Magnesium 420mg
+Manganese 2.3mg
+Molybdenum 45mcg
+Niacin 16mg
+Pantothenic Acid 5mg
+Phosphorus 1250mg
+Potassium 4700mg
+Protein 50g
+Riboflavin 1.3mg
+Saturated fat 20g
+Selenium 55mcg
+Sodium 2300mg
+Thiamin 1.2mg
+Total carbohydrate 275g
+Vitamin A 900mcg
+Vitamin B6 1.7mg
+Vitamin B12 2.4mcg
+Vitamin C 90mg
+Vitamin D 20mcg
+Vitamin E 15mg
+Vitamin K 120mcg
+Zinc 11mg
+Omega-3 500mg
+Fiber 28g

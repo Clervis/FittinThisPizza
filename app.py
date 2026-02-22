@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import json
 import os
+import re
 import shutil
 import subprocess
 import urllib.error
@@ -34,6 +35,49 @@ NUTRITION_COLUMNS = [
 	"Meal",
 	"Calories",
 ]
+NUTRITION_SUMMARY_COLUMNS = [
+	"Date",
+	"Person",
+	"Description",
+	"Protein (g)",
+	"Carbohydrates (g)",
+	"Fat (g)",
+	"Sodium (mg)",
+	"Fiber (g)",
+	"Vitamin A (mcg)",
+	"Vitamin B6 (mg)",
+	"Vitamin B12 (mcg)",
+	"Vitamin C (mg)",
+	"Vitamin D (mcg)",
+	"Calcium (mg)",
+	"Potassium (mg)",
+	"Magnesium (mg)",
+	"Iron (mg)",
+	"Zinc (mg)",
+	"Omega-3 (mg)",
+]
+NUTRITION_TARGETS = {
+	"christian": 1200,
+	"krysty": 1400,
+}
+NUTRITION_JSON_KEYS = {
+	"Protein (g)": "protein_g",
+	"Carbohydrates (g)": "carbohydrates_g",
+	"Fat (g)": "fat_g",
+	"Sodium (mg)": "sodium_mg",
+	"Fiber (g)": "fiber_g",
+	"Vitamin A (mcg)": "vitamin_a_mcg",
+	"Vitamin B6 (mg)": "vitamin_b6_mg",
+	"Vitamin B12 (mcg)": "vitamin_b12_mcg",
+	"Vitamin C (mg)": "vitamin_c_mg",
+	"Vitamin D (mcg)": "vitamin_d_mcg",
+	"Calcium (mg)": "calcium_mg",
+	"Potassium (mg)": "potassium_mg",
+	"Magnesium (mg)": "magnesium_mg",
+	"Iron (mg)": "iron_mg",
+	"Zinc (mg)": "zinc_mg",
+	"Omega-3 (mg)": "omega_3_mg",
+}
 
 DEFAULT_DATA_DIR = (
 	"/data"
@@ -52,10 +96,6 @@ PERSON_PROFILES = {
 	"christian": {"age": 42, "height": "6'0\""},
 	"krysty": {"age": 41, "height": "5'4\""},
 }
-DEFAULT_NUTRITION_PROMPT = (
-	"Keep it encouraging and concise. Mention protein, veggies, and hydration. "
-	"Offer one small improvement idea for tomorrow."
-)
 
 
 def _build_data_sync_note() -> str:
@@ -91,6 +131,7 @@ def _maybe_sync_from_fly() -> None:
 		"fitness_data_prototype.csv",
 		"nutrition_christian.csv",
 		"nutrition_krysty.csv",
+		"nutrition.csv",
 	)
 	synced = False
 	for filename in files:
@@ -200,8 +241,8 @@ def _call_groq(messages: list[dict[str, str]]) -> str:
 	payload = {
 		"model": GROQ_MODEL,
 		"messages": messages,
-		"temperature": 0.2,
-		"max_tokens": 300,
+		"temperature": 0.1,
+		"max_tokens": 900,
 	}
 	data = json.dumps(payload).encode("utf-8")
 	request = urllib.request.Request(
@@ -230,18 +271,130 @@ def _call_groq(messages: list[dict[str, str]]) -> str:
 		) from exc
 
 
-def _summarize_nutrition(
+def _nutrition_summary_path() -> Path:
+	return DATA_DIR / "nutrition.csv"
+
+
+def _ensure_nutrition_summary_file(data_path: Path) -> None:
+	if data_path.exists():
+		return
+	with data_path.open("w", newline="", encoding="utf-8") as handle:
+		writer = csv.DictWriter(handle, fieldnames=NUTRITION_SUMMARY_COLUMNS)
+		writer.writeheader()
+
+
+def _read_nutrition_summary_rows(data_path: Path) -> list[dict[str, str]]:
+	if not data_path.exists():
+		return []
+
+	with data_path.open(newline="", encoding="utf-8") as handle:
+		reader = csv.DictReader(handle)
+		return [row for row in reader]
+
+
+def _write_nutrition_summary_rows(data_path: Path, rows: list[dict[str, str]]) -> None:
+	with data_path.open("w", newline="", encoding="utf-8") as handle:
+		writer = csv.DictWriter(handle, fieldnames=NUTRITION_SUMMARY_COLUMNS)
+		writer.writeheader()
+		writer.writerows(rows)
+
+
+def _load_fixed_prompt() -> str:
+	prompt_path = Path(__file__).resolve().parent / "fixed_prompt.txt"
+	try:
+		return prompt_path.read_text(encoding="utf-8").strip()
+	except OSError:
+		return ""
+
+
+def _load_daily_values() -> dict[str, float]:
+	values_path = Path(__file__).resolve().parent / "daily_values.txt"
+	if not values_path.exists():
+		return {}
+	pattern = re.compile(r"^(?P<name>.+?)\s+(?P<value>[\d.]+)\s*(?P<unit>mcg|mg|g)$")
+	values: dict[str, float] = {}
+	for line in values_path.read_text(encoding="utf-8").splitlines():
+		text = line.strip()
+		if not text:
+			continue
+		match = pattern.match(text)
+		if not match:
+			continue
+		name = match.group("name").strip()
+		try:
+			value = float(match.group("value"))
+		except ValueError:
+			continue
+		values[name] = value
+	return values
+
+
+def _extract_json_payload(text: str) -> dict[str, object]:
+	try:
+		return json.loads(text)
+	except json.JSONDecodeError:
+		pass
+	start = text.find("{")
+	end = text.rfind("}")
+	if start == -1 or end == -1 or end <= start:
+		raise ValueError("No JSON object found in response.")
+	return json.loads(text[start : end + 1])
+
+
+def _limit_words(text: str, max_words: int) -> str:
+	words = text.split()
+	if len(words) <= max_words:
+		return text
+	return " ".join(words[:max_words])
+
+
+def _coerce_number(value: object) -> float | None:
+	if value is None:
+		return None
+	if isinstance(value, (int, float)):
+		return float(value)
+	if isinstance(value, str):
+		clean = value.replace(",", "").strip()
+		try:
+			return float(clean)
+		except ValueError:
+			return None
+	return None
+
+
+def _parse_nutrition_payload(text: str) -> tuple[str | None, dict[str, float] | None, str | None]:
+	try:
+		payload = _extract_json_payload(text)
+	except (ValueError, json.JSONDecodeError) as exc:
+		return None, None, f"Invalid JSON payload: {exc}"
+
+	description = payload.get("description") if isinstance(payload, dict) else None
+	if isinstance(payload, dict) and description is None:
+		description = payload.get("summary")
+	if not isinstance(description, str):
+		return None, None, "Missing description in payload."
+
+	nutrients = None
+	if isinstance(payload, dict):
+		nutrients = payload.get("nutrients") or payload.get("nutrition")
+	if not isinstance(nutrients, dict):
+		return None, None, "Missing nutrients map in payload."
+
+	nutrient_values: dict[str, float] = {}
+	for column, key in NUTRITION_JSON_KEYS.items():
+		value = nutrients.get(key)
+		nutrient_values[column] = _coerce_number(value) or 0.0
+
+	return _limit_words(description, 20), nutrient_values, None
+
+
+def _build_nutrition_messages(
 	person: str,
 	entry_date: str,
 	entries: list[dict[str, str]],
 	total_calories: int,
-	prompt_text: str,
-	current_weight: float | None,
-	weekly_target_loss: float | None,
-) -> tuple[str | None, str | None]:
-	if not entries:
-		return None, "No entries found for that date."
-
+	fixed_prompt: str,
+) -> list[dict[str, str]]:
 	lines = []
 	for entry in entries:
 		meal = entry.get("Meal", "").strip()
@@ -250,92 +403,117 @@ def _summarize_nutrition(
 			continue
 		lines.append(f"- {meal}: {calories} calories")
 
-	weight_note = "unknown"
-	if current_weight is not None:
-		weight_note = f"{current_weight:.1f} lb"
-	weekly_target_note = "unknown"
-	if weekly_target_loss is not None:
-		weekly_target_note = f"{weekly_target_loss:.1f} lb/week"
-
-	prompt = (
-		"You are a helpful nutrition assistant. Summarize the day in 3-5 sentences. "
-		"Mention total calories and any patterns. If calories seem low or high, "
-		"say so gently. No medical advice."
+	keys_hint = ", ".join(NUTRITION_JSON_KEYS.values())
+	format_hint = (
+		"Return only valid JSON (no markdown, no code fences, no commentary). "
+		"Do not return Python code. Schema: {\"description\": \"...\", "
+		"\"nutrients\": {" + keys_hint + "}}."
 	)
 	user_content = (
-		f"Person: {person}\n"
-		f"User prompt: {prompt_text}\n"
+		f"Name: {person.title()}\n"
 		f"Date: {entry_date}\n"
-		f"Current weight: {weight_note}\n"
-		f"Weekly weight loss target: {weekly_target_note}\n"
 		f"Total calories: {total_calories}\n"
 		"Entries:\n"
 		+ "\n".join(lines)
+		+ "\n\n"
+		+ format_hint
 	)
+
+	return [
+		{"role": "system", "content": fixed_prompt},
+		{
+			"role": "system",
+			"content": "Output JSON only. Do not wrap in code fences or add extra text or code.",
+		},
+		{"role": "user", "content": user_content},
+	]
+
+
+def _generate_nutrition_summary(
+	person: str,
+	entry_date: str,
+	entries: list[dict[str, str]],
+	total_calories: int,
+	fixed_prompt: str,
+) -> tuple[dict[str, str] | None, str | None]:
+	if not entries:
+		return None, "No entries found for that date."
+	if not fixed_prompt:
+		return None, "Missing fixed_prompt.txt."
+
 	try:
-		summary = _call_groq(
-			[
-				{"role": "system", "content": prompt},
-				{"role": "user", "content": user_content},
-			]
+		response = _call_groq(
+			_build_nutrition_messages(person, entry_date, entries, total_calories, fixed_prompt)
 		)
-		context_lines = [
-			f"Prompt: {prompt_text}",
-			f"Current weight: {weight_note}",
-			f"Weekly weight loss target: {weekly_target_note}",
-			"Log:",
-			*lines,
-		]
-		summary = "\n".join(context_lines) + "\n\nSummary:\n" + summary
-		return summary, None
+		print("Groq response:\n" + response, flush=True)
+		description, nutrient_values, error = _parse_nutrition_payload(response)
+		if nutrient_values is not None:
+			print(list(nutrient_values.values()), flush=True)
+		if error or nutrient_values is None or description is None:
+			return None, error or "Unable to parse nutrition summary."
+		row: dict[str, str] = {
+			"Date": entry_date,
+			"Person": person,
+			"Description": description,
+		}
+		for column in NUTRITION_JSON_KEYS:
+			row[column] = f"{nutrient_values.get(column, 0.0):.2f}"
+		return row, None
 	except (RuntimeError, urllib.error.URLError, KeyError, json.JSONDecodeError) as exc:
 		return None, f"Groq error: {exc}"
 
 
-def _get_tracker_metrics(person: str) -> tuple[float | None, float | None]:
-	data_path = DATA_DIR / "fitness_data.csv"
-	rows = _read_rows(data_path)
-	if not rows:
-		return None, None
-	rows_sorted = sorted(rows, key=_date_key)
-	person_title = person.title()
-	weight_key = f"{person_title} Weight"
-	target_key = f"{person_title} Target"
+def _summary_key(row: dict[str, str]) -> tuple[str, str]:
+	return row.get("Person", "").lower(), row.get("Date", "")
 
-	current_weight: float | None = None
-	for row in reversed(rows_sorted):
-		value = _parse_float(row.get(weight_key, ""))
-		if value is not None:
-			current_weight = value
-			break
 
-	latest_target_date: datetime | None = None
-	latest_target_value: float | None = None
-	for row in reversed(rows_sorted):
-		value = _parse_float(row.get(target_key, ""))
-		if value is None:
+def _ensure_nutrition_outputs(
+	person: str,
+	all_entries: list[dict[str, str]],
+	today: str,
+) -> dict[tuple[str, str], dict[str, str]]:
+	summary_path = _nutrition_summary_path()
+	summary_rows = _read_nutrition_summary_rows(summary_path)
+	summary_map = {_summary_key(row): row for row in summary_rows}
+	fixed_prompt = _load_fixed_prompt()
+	target = NUTRITION_TARGETS.get(person, 0)
+
+	entries_by_date: dict[str, list[dict[str, str]]] = {}
+	for row in all_entries:
+		date_value = row.get("Date", "")
+		if not date_value:
 			continue
-		latest_target_value = value
-		latest_target_date = _date_key(row)
-		break
+		entries_by_date.setdefault(date_value, []).append(row)
 
-	weekly_target_loss: float | None = None
-	if latest_target_date and latest_target_value is not None:
-		cutoff = latest_target_date - timedelta(days=7)
-		previous_target_value: float | None = None
-		for row in reversed(rows_sorted):
-			row_date = _date_key(row)
-			if row_date > cutoff:
+	updated = False
+	for date_value, entries in entries_by_date.items():
+		total_calories = 0
+		for row in entries:
+			try:
+				total_calories += int(row.get("Calories", "0"))
+			except ValueError:
 				continue
-			value = _parse_float(row.get(target_key, ""))
-			if value is None:
-				continue
-			previous_target_value = value
-			break
-		if previous_target_value is not None:
-			weekly_target_loss = previous_target_value - latest_target_value
+		should_generate = date_value != today or (target and total_calories >= target)
+		key = (person, date_value)
+		if should_generate and key not in summary_map:
+			row, error = _generate_nutrition_summary(
+				person,
+				date_value,
+				entries,
+				total_calories,
+				fixed_prompt,
+			)
+			if row:
+				summary_rows.append(row)
+				summary_map[key] = row
+				updated = True
+			elif error:
+				print(f"Nutrition summary error for {person} {date_value}: {error}", flush=True)
 
-	return current_weight, weekly_target_loss
+	if updated:
+		_write_nutrition_summary_rows(summary_path, summary_rows)
+
+	return summary_map
 
 
 def _read_nutrition_rows(data_path: Path) -> list[dict[str, str]]:
@@ -371,81 +549,116 @@ def _add_nutrition_entry(
 	_write_nutrition_rows(data_path, rows)
 
 
+def _summary_value(row: dict[str, str], column: str) -> float:
+	value = row.get(column, "")
+	parsed = _parse_float(value)
+	return parsed if parsed is not None else 0.0
+
+
+def _build_day_logs(
+	person: str,
+	all_entries: list[dict[str, str]],
+	today: str,
+	summary_map: dict[tuple[str, str], dict[str, str]],
+) -> list[dict[str, object]]:
+	entries_by_date: dict[str, list[dict[str, str]]] = {}
+	for row in all_entries:
+		date_value = row.get("Date", "")
+		if not date_value:
+			continue
+		entries_by_date.setdefault(date_value, []).append(row)
+
+	all_dates = sorted(entries_by_date.keys(), reverse=True)
+	if today not in all_dates:
+		all_dates.insert(0, today)
+
+	logs: list[dict[str, object]] = []
+	target = NUTRITION_TARGETS.get(person, 0)
+	macro_columns = {
+		"Protein (g)": "protein",
+		"Carbohydrates (g)": "carbs",
+		"Fat (g)": "fat",
+	}
+	other_columns = [
+		column
+		for column in NUTRITION_SUMMARY_COLUMNS
+		if column not in {"Date", "Person", "Description", *macro_columns.keys()}
+	]
+
+	for date_value in all_dates:
+		entries = entries_by_date.get(date_value, [])
+		total_calories = 0
+		for row in entries:
+			try:
+				total_calories += int(row.get("Calories", "0"))
+			except ValueError:
+				continue
+		running = 0
+		entry_rows: list[dict[str, object]] = []
+		for row in entries:
+			calories_value = 0
+			try:
+				calories_value = int(row.get("Calories", "0"))
+			except ValueError:
+				calories_value = 0
+			is_late = target > 0 and running >= target
+			running += calories_value
+			entry_rows.append(
+				{
+					**row,
+					"late_entry": is_late,
+				}
+			)
+
+		summary_row = summary_map.get((person, date_value))
+		macros: dict[str, float] | None = None
+		other_nutrients: list[dict[str, object]] | None = None
+		description = None
+		if summary_row:
+			description = summary_row.get("Description")
+			macros = {
+				label: _summary_value(summary_row, column)
+				for column, label in macro_columns.items()
+			}
+			other_nutrients = [
+				{
+					"label": column,
+					"value": _summary_value(summary_row, column),
+				}
+				for column in other_columns
+			]
+
+		logs.append(
+			{
+				"date": date_value,
+				"entries": entry_rows,
+				"total_calories": total_calories,
+				"target": target,
+				"description": description,
+				"macros": macros,
+				"other_nutrients": other_nutrients,
+				"chart_id": date_value.replace("-", ""),
+			}
+		)
+
+	return logs
+
+
 def _render_nutrition_page(
 	person: str,
 	today: str,
-	all_entries: list[dict[str, str]],
-	summary_text: str | None,
-	summary_error: str | None,
-	summary_date: str,
-	available_dates: list[str] | None,
-	summary_generated_at: str | None,
-	summary_source: str | None,
-	prompt_text: str,
+	day_logs: list[dict[str, object]],
+	is_mobile: bool,
 ) -> str:
-	today_entries = [
-		row
-		for row in all_entries
-		if row.get("Date", "") == today
-	]
-	previous_by_date: dict[str, list[dict[str, str]]] = {}
-	for row in all_entries:
-		date_value = row.get("Date", "")
-		if not date_value or date_value == today:
-			continue
-		previous_by_date.setdefault(date_value, []).append(row)
-
-	previous_days: list[dict[str, object]] = []
-	for date_value in sorted(previous_by_date.keys(), reverse=True):
-		entries = previous_by_date[date_value]
-		day_total = 0
-		for row in entries:
-			try:
-				day_total += int(row.get("Calories", "0"))
-			except ValueError:
-				continue
-		previous_days.append(
-			{
-				"date": date_value,
-				"entries": entries,
-				"total_calories": day_total,
-			}
-		)
-	total_calories = 0
-	for row in today_entries:
-		try:
-			total_calories += int(row.get("Calories", "0"))
-		except ValueError:
-			continue
-
-	if available_dates is None:
-		available_dates = sorted(
-			{
-				row.get("Date", "")
-				for row in all_entries
-				if row.get("Date", "") and row.get("Date", "") != today
-			},
-			reverse=True,
-		)
-		if summary_date not in available_dates:
-			available_dates.insert(0, summary_date)
-
 	return render_template(
 		"nutrition.html",
-		title="Nutrition",
+		title="Fittin' this Whole Pizza in my Mouth",
 		active_person=person,
 		today=today,
-		today_entries=today_entries,
-		previous_days=previous_days,
-		total_calories=total_calories,
-		summary_text=summary_text,
-		summary_error=summary_error,
-		summary_date=summary_date,
-		available_dates=available_dates,
-		summary_generated_at=summary_generated_at,
-		summary_source=summary_source,
-		prompt_text=prompt_text,
+		day_logs=day_logs,
+		is_mobile=is_mobile,
 		profile=PERSON_PROFILES.get(person, {}),
+		daily_values=_load_daily_values(),
 	)
 
 
@@ -566,6 +779,14 @@ def _render_progress(
 		page_class,
 		is_mobile,
 	)
+
+
+def _bootstrap_nutrition_outputs() -> None:
+	for person in ("christian", "krysty"):
+		data_path = _nutrition_data_path(person)
+		all_entries = _read_nutrition_rows(data_path)
+		today = _nutrition_now().strftime("%Y-%m-%d")
+		_ensure_nutrition_outputs(person, all_entries, today)
 
 
 def _render_progress_rows(
@@ -795,8 +1016,8 @@ def _render_progress_rows(
 	plot.xaxis.minor_tick_line_color = None
 	plot.yaxis.axis_label = "Christian Weight (lbs)"
 	plot.yaxis.axis_label_text_font_style = "bold"
-	plot.yaxis.axis_label_text_color = "#166534"
-	plot.yaxis.major_label_text_color = "#166534"
+	plot.yaxis.axis_label_text_color = "#007ba7"
+	plot.yaxis.major_label_text_color = "#007ba7"
 	plot.yaxis.major_label_orientation = 1.5708
 	plot.yaxis.minor_tick_line_color = None
 
@@ -815,8 +1036,8 @@ def _render_progress_rows(
 	}
 	right_axis = LinearAxis(y_range_name="krysty", axis_label="Krysty Weight (lbs)")
 	right_axis.axis_label_text_font_style = "bold"
-	right_axis.axis_label_text_color = "#f97316"
-	right_axis.major_label_text_color = "#f97316"
+	right_axis.axis_label_text_color = "#6366f1"
+	right_axis.major_label_text_color = "#6366f1"
 	right_axis.major_label_orientation = 1.5708
 	right_axis.minor_tick_line_color = None
 	plot.add_layout(right_axis, "right")
@@ -891,17 +1112,33 @@ def _render_progress_rows(
 	)
 	plot.add_tools(
 		HoverTool(
-			renderers=[christian_points, krysty_points],
+			renderers=[christian_points],
 			tooltips="""
 			<div>
+			  <div><strong>Christian</strong></div>
 			  <div><span>Weight:</span> <span>@y{0.0}</span></div>
-			  <div style=\"text-align: right;\">
-			    <span style=\"color: @diff_color; font-weight: 600;\">@diff{+0.0}</span>
+			  <div style="text-align: right;">
+			    <span style="color: @diff_color; font-weight: 600;">@diff{+0.0}</span>
 			  </div>
 			</div>
 			""",
 			mode="vline",
-		)
+			attachment="left",
+		),
+		HoverTool(
+			renderers=[krysty_points],
+			tooltips="""
+			<div>
+			  <div><strong>Krysty</strong></div>
+			  <div><span>Weight:</span> <span>@y{0.0}</span></div>
+			  <div style="text-align: right;">
+			    <span style="color: @diff_color; font-weight: 600;">@diff{+0.0}</span>
+			  </div>
+			</div>
+			""",
+			mode="vline",
+			attachment="right",
+		),
 	)
 	plot.segment(
 		krysty_x0,
@@ -949,7 +1186,7 @@ def _render_progress_rows(
 		dates,
 		christian_targets,
 		line_width=2,
-		color="#166534",
+		color="#007ba7",
 		line_dash="dashed",
 		legend_label="Christian Target",
 	)
@@ -957,7 +1194,7 @@ def _render_progress_rows(
 		dates,
 		krysty_targets,
 		line_width=2,
-		color="#f97316",
+		color="#6366f1",
 		line_dash="dashed",
 		legend_label="Krysty Target",
 		y_range_name="krysty",
@@ -1180,6 +1417,8 @@ def create_app() -> Flask:
 	_ensure_seed_data_file(DATA_DIR / "fitness_data_prototype.csv", "fitness_data_prototype.csv")
 	_ensure_nutrition_file(_nutrition_data_path("christian"))
 	_ensure_nutrition_file(_nutrition_data_path("krysty"))
+	_ensure_nutrition_summary_file(_nutrition_summary_path())
+	_bootstrap_nutrition_outputs()
 
 	@app.context_processor
 	def inject_data_dir() -> dict[str, str]:
@@ -1223,82 +1462,14 @@ def create_app() -> Flask:
 
 	@app.route("/nutrition", methods=["GET", "POST"])
 	def nutrition() -> str:
-		person = request.args.get("person", "christian").strip().lower()
+		person = request.args.get("person", "krysty").strip().lower()
 		if person not in {"christian", "krysty"}:
 			person = "christian"
 		today = _nutrition_now().strftime("%Y-%m-%d")
-		default_prompt = DEFAULT_NUTRITION_PROMPT
 
 		data_path = _nutrition_data_path(person)
 		all_entries = _read_nutrition_rows(data_path)
-		previous_dates = sorted(
-			{
-				row.get("Date", "")
-				for row in all_entries
-				if row.get("Date", "") and row.get("Date", "") != today
-			},
-			reverse=True,
-		)
 		if request.method == "POST":
-			action = request.form.get("action", "add").strip().lower()
-			if action == "summary":
-				summary_date = request.form.get("summary_date", "").strip() or today
-				prompt_text = request.form.get("prompt_text", "").strip() or default_prompt
-				try:
-					summary_date = datetime.strptime(summary_date, "%Y-%m-%d").strftime("%Y-%m-%d")
-				except ValueError:
-					summary_date = today
-
-				if not previous_dates:
-					return _render_nutrition_page(
-						person,
-						today,
-						all_entries,
-						None,
-						"No previous days with entries yet.",
-						today,
-						previous_dates,
-						datetime.now(EASTERN_TZ).strftime("%Y-%m-%d %H:%M:%S"),
-						"manual",
-						prompt_text,
-					)
-				if summary_date not in previous_dates:
-					summary_date = previous_dates[0]
-				entries_for_date = [
-					row
-					for row in all_entries
-					if row.get("Date", "") == summary_date
-				]
-				summary_total = 0
-				for row in entries_for_date:
-					try:
-						summary_total += int(row.get("Calories", "0"))
-					except ValueError:
-						continue
-				current_weight, weekly_target_loss = _get_tracker_metrics(person)
-				summary_text, summary_error = _summarize_nutrition(
-					person,
-					summary_date,
-					entries_for_date,
-					summary_total,
-					prompt_text,
-					current_weight,
-					weekly_target_loss,
-				)
-
-				return _render_nutrition_page(
-					person,
-					today,
-					all_entries,
-					summary_text,
-					summary_error,
-					summary_date,
-					previous_dates,
-					datetime.now(EASTERN_TZ).strftime("%Y-%m-%d %H:%M:%S"),
-					"manual",
-					prompt_text,
-				)
-
 			meal = request.form.get("meal", "").strip()
 			calories_input = request.form.get("calories", "").strip()
 			entry_date_input = request.form.get("entry_date", "").strip()
@@ -1317,52 +1488,13 @@ def create_app() -> Flask:
 					_add_nutrition_entry(data_path, meal, calories, entry_date)
 			return redirect(url_for("nutrition", person=person))
 
-		summary_text = None
-		summary_error = None
-		summary_date = previous_dates[0] if previous_dates else today
-		summary_generated_at = None
-		summary_source = None
-		prompt_text = default_prompt
-		if previous_dates:
-			entries_for_date = [
-				row
-				for row in all_entries
-				if row.get("Date", "") == summary_date
-			]
-			summary_total = 0
-			for row in entries_for_date:
-				try:
-					summary_total += int(row.get("Calories", "0"))
-				except ValueError:
-					continue
-			current_weight, weekly_target_loss = _get_tracker_metrics(person)
-			summary_text, summary_error = _summarize_nutrition(
-				person,
-				summary_date,
-				entries_for_date,
-				summary_total,
-				prompt_text,
-				current_weight,
-				weekly_target_loss,
-			)
-			summary_generated_at = datetime.now(EASTERN_TZ).strftime("%Y-%m-%d %H:%M:%S")
-			summary_source = "auto"
-		else:
-			summary_error = "No previous days with entries yet."
-			summary_generated_at = datetime.now(EASTERN_TZ).strftime("%Y-%m-%d %H:%M:%S")
-			summary_source = "auto"
-
+		summary_map = _ensure_nutrition_outputs(person, all_entries, today)
+		day_logs = _build_day_logs(person, all_entries, today, summary_map)
 		return _render_nutrition_page(
 			person,
 			today,
-			all_entries,
-			summary_text,
-			summary_error,
-			summary_date,
-			previous_dates,
-			summary_generated_at,
-			summary_source,
-			prompt_text,
+			day_logs,
+			_is_mobile_request(),
 		)
 
 	return app
