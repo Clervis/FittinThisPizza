@@ -415,13 +415,43 @@ button.bk-btn-warning span {
   border: 1px solid rgba(224, 225, 221, 0.12);
 }
 
+.nutrition-chart.macro-chart {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.6fr) 1fr;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.macro-notes {
+  font-size: 0.85rem;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.macro-note {
+  display: block;
+}
+
+.macro-note.warn {
+  color: #f87171;
+  font-weight: 700;
+}
+
 .nutrition-chart canvas {
   width: 100% !important;
   height: 260px !important;
 }
 
 .nutrition-chart.macro-chart canvas {
-  height: 140px !important;
+  width: clamp(140px, 22vw, 180px) !important;
+  height: clamp(140px, 22vw, 180px) !important;
+  justify-self: center;
+}
+
+.nutrition-report-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.75rem;
 }
 
 .nutrition-muted {
@@ -521,6 +551,18 @@ button.bk-btn-warning span {
 
   .nutrition-day {
     grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  .nutrition-log-card {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+
+  .nutrition-summary-card {
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+    border-top: 0;
   }
 
   .previous-day-add-form {

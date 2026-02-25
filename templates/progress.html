@@ -159,9 +159,15 @@
       });
     });
 
-    const setupRangeControls = () => {
+    const setupRangeControls = (attempts = 0) => {
       const container = document.querySelector("[data-range-controls]");
-      if (!container || !window.Bokeh || !Bokeh.documents || !Bokeh.documents.length) return;
+      if (!container) return;
+      if (!window.Bokeh || !Bokeh.documents || !Bokeh.documents.length) {
+        if (attempts < 10) {
+          setTimeout(() => setupRangeControls(attempts + 1), 200);
+        }
+        return;
+      }
 
       const doc = Bokeh.documents[0];
       const plotName = container.dataset.plotName;
@@ -246,10 +252,20 @@
     };
 
     if (document.readyState === "loading") {
-      document.addEventListener("DOMContentLoaded", setupRangeControls);
+      document.addEventListener("DOMContentLoaded", () => setupRangeControls(0));
     } else {
-      setupRangeControls();
+      setupRangeControls(0);
     }
+
+    weightInputs.forEach((input) => {
+      input.addEventListener("change", () => {
+        const formId = input.getAttribute("form");
+        const form = formId ? document.getElementById(formId) : input.closest("form");
+        if (form) {
+          form.requestSubmit();
+        }
+      });
+    });
 
   </script>
 {% endblock %}

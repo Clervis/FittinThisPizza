@@ -54,6 +54,15 @@
               {% endfor %}
             </tbody>
           </table>
+
+          <form
+            class="nutrition-report-row"
+            method="post"
+            action="{{ url_for('run_nutrition_report', person=active_person) }}"
+          >
+            <input type="hidden" name="entry_date" value="{{ day.date }}" />
+            <button class="button button-outline" type="submit">Run Report</button>
+          </form>
         </div>
 
         <div class="card nutrition-summary-card">
@@ -68,6 +77,7 @@
               data-nutrients='{{ day.other_nutrients | tojson }}'
             >
               <div class="nutrition-chart macro-chart">
+                <div class="macro-notes" id="macro-notes-{{ day.chart_id }}"></div>
                 <canvas id="macro-chart-{{ day.chart_id }}"></canvas>
               </div>
               <div class="nutrition-chart">
@@ -75,7 +85,7 @@
               </div>
             </div>
           {% else %}
-            <p class="nutrition-muted">Summary will appear after targets are met.</p>
+            <p class="nutrition-muted"></p>
           {% endif %}
         </div>
       </div>
@@ -87,6 +97,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
   <script>
     document.addEventListener("DOMContentLoaded", () => {
+      const isMobile = window.matchMedia("(max-width: 600px)").matches;
       const dailyValues = {{ daily_values | tojson }};
       const donutColors = {
         protein: "#38bdf8",
@@ -104,11 +115,13 @@
         A: "mcg",
         B6: "mg",
         B12: "mcg",
+        C: "mg",
         D: "mcg",
         Calcium: "mg",
         Potassium: "mg",
         Iron: "mg",
         Magnesium: "mg",
+        Zinc: "mg",
         "Omega-3": "mg",
       };
       const chartNodes = document.querySelectorAll(".nutrition-charts");
@@ -127,10 +140,31 @@
           const macroValues = [macros.protein || 0, macros.carbs || 0, macros.fat || 0];
           const macroLabels = ["Protein", "Carbs", "Fat"];
           const macroDaily = [
-            Number(dailyValues.Protein || 0),
-            Number(dailyValues["Total carbohydrate"] || 0),
-            Number(dailyValues.Fat || 0),
+            Number(dailyValues["Protein (g)"] || 0),
+            Number(dailyValues["Carbohydrates (g)"] || 0),
+            Number(dailyValues["Fat (g)"] || 0),
           ];
+          const macroNotes = document.getElementById(`macro-notes-${chartId}`);
+          if (macroNotes) {
+            const macroTotal = macroValues.reduce((sum, item) => sum + item, 0);
+            const ranges = {
+              Protein: { min: 10, max: 35 },
+              Carbs: { min: 45, max: 65 },
+              Fat: { min: 20, max: 35 },
+            };
+            const items = ["Protein", "Carbs", "Fat"].map((name, idx) => {
+              const pct = macroTotal ? (macroValues[idx] / macroTotal) * 100 : 0;
+              const rounded = Math.round(pct);
+              if (pct < ranges[name].min) {
+                return `<span class="macro-note warn">${name} ${rounded}% Low</span>`;
+              }
+              if (pct > ranges[name].max) {
+                return `<span class="macro-note warn">${name} ${rounded}% High</span>`;
+              }
+              return `<span class="macro-note">${name} ${rounded}%</span>`;
+            });
+            macroNotes.innerHTML = items.join("<br>");
+          }
           new Chart(macroCanvas, {
             type: "doughnut",
             data: {
@@ -144,7 +178,8 @@
               ],
             },
             options: {
-              maintainAspectRatio: false,
+              maintainAspectRatio: true,
+              aspectRatio: 1,
               plugins: {
                 legend: {
                   position: "right",
@@ -209,27 +244,30 @@
             A: "A",
             B6: "B6",
             B12: "B12",
+            C: "C",
             D: "D",
           };
 
           const normalizeLabel = (label) => label.replace(/\s*\([^)]*\)/g, "").trim();
           const dailyValueKey = (label) => normalizeLabel(label);
-          const dailyValueOverrides = {
-            Protein: "Protein",
-            Carbs: "Total carbohydrate",
-            Fats: "Fat",
-            Salt: "Sodium",
-            Fiber: "Dietary Fiber",
-            A: "Vitamin A",
-            B6: "Vitamin B6",
-            B12: "Vitamin B12",
-            D: "Vitamin D",
-            Calcium: "Calcium",
-            Potassium: "Potassium",
-            Iron: "Iron",
-            Magnesium: "Magnesium",
-            "Omega-3": "Omega-3",
-          };
+            const dailyValueOverrides = {
+              Protein: "Protein (g)",
+              Carbs: "Carbohydrates (g)",
+              Fats: "Fat (g)",
+              Salt: "Salt (mg)",
+              Fiber: "Fiber (g)",
+              A: "Vitamin A (mcg)",
+              B6: "Vitamin B6 (mg)",
+              B12: "Vitamin B12 (mcg)",
+              C: "Vitamin C (mg)",
+              D: "Vitamin D (mcg)",
+              Calcium: "Calcium (mg)",
+              Potassium: "Potassium (mg)",
+              Iron: "Iron (mg)",
+              Magnesium: "Magnesium (mg)",
+              Zinc: "Zinc (mg)",
+              "Omega-3": "Omega-3 (mg)",
+            };
 
           const orderedKeys = [
             { key: "Energy", source: "Energy" },
@@ -241,11 +279,13 @@
             { key: "A", source: "Vitamin A (mcg)" },
             { key: "B6", source: "Vitamin B6 (mg)" },
             { key: "B12", source: "Vitamin B12 (mcg)" },
+            { key: "C", source: "Vitamin C (mg)" },
             { key: "D", source: "Vitamin D (mcg)" },
             { key: "Calcium", source: "Calcium (mg)" },
             { key: "Potassium", source: "Potassium (mg)" },
             { key: "Iron", source: "Iron (mg)" },
             { key: "Magnesium", source: "Magnesium (mg)" },
+            { key: "Zinc", source: "Zinc (mg)" },
             { key: "Omega-3", source: "Omega-3 (mg)" },
           ];
 
@@ -287,16 +327,24 @@
             else if (item.key === "Fats") colors.push(donutColors.fat);
             else if (item.key === "Fiber") colors.push(categoryColors.fiber);
             else if (item.key === "Salt") colors.push(categoryColors.salt);
-            else if (["A", "B6", "B12", "D"].includes(item.key)) colors.push(categoryColors.vitamins);
-            else if (["Calcium", "Potassium", "Iron", "Magnesium"].includes(item.key)) colors.push(categoryColors.minerals);
+            else if (["A", "B6", "B12", "C", "D"].includes(item.key)) colors.push(categoryColors.vitamins);
+            else if (["Calcium", "Potassium", "Iron", "Magnesium", "Zinc"].includes(item.key)) colors.push(categoryColors.minerals);
             else if (item.key === "Omega-3") colors.push(categoryColors.omega);
             else colors.push("#778da9");
           });
 
           const energyIndex = labels.indexOf("Energy");
-          const energyProteinPct = target > 0 ? ((macros.protein || 0) * 4 / target) * 100 : 0;
-          const energyCarbsPct = target > 0 ? ((macros.carbs || 0) * 4 / target) * 100 : 0;
-          const energyFatPct = target > 0 ? ((macros.fat || 0) * 9 / target) * 100 : 0;
+          const totalEnergyPct = target > 0 ? (totalCalories / target) * 100 : 0;
+          const proteinEnergy = (macros.protein || 0) * 4;
+          const carbsEnergy = (macros.carbs || 0) * 4;
+          const fatEnergy = (macros.fat || 0) * 9;
+          const macroEnergyTotal = proteinEnergy + carbsEnergy + fatEnergy;
+          const energyProteinPct =
+            macroEnergyTotal > 0 ? (totalEnergyPct * proteinEnergy) / macroEnergyTotal : 0;
+          const energyCarbsPct =
+            macroEnergyTotal > 0 ? (totalEnergyPct * carbsEnergy) / macroEnergyTotal : 0;
+          const energyFatPct =
+            macroEnergyTotal > 0 ? (totalEnergyPct * fatEnergy) / macroEnergyTotal : 0;
 
           const baseValues = values.map((value, idx) => (idx === energyIndex ? 0 : value));
 
@@ -380,8 +428,11 @@
                   ticks: {
                     color: "#e0e1dd",
                     font: {
-                      size: 9,
+                      size: isMobile ? 8 : 9,
                     },
+                    autoSkip: !isMobile,
+                    maxRotation: isMobile ? 50 : 0,
+                    minRotation: isMobile ? 50 : 0,
                   },
                   grid: {
                     display: false,

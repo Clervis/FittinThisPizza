@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import ast
 import csv
 import json
 import os
-import re
 import shutil
 import subprocess
 import urllib.error
@@ -307,38 +307,97 @@ def _load_fixed_prompt() -> str:
 		return ""
 
 
-def _load_daily_values() -> dict[str, float]:
-	values_path = Path(__file__).resolve().parent / "daily_values.txt"
+def _load_daily_values() -> dict[str, dict[str, float]]:
+	values_path = Path(__file__).resolve().parent / "daily_values.csv"
 	if not values_path.exists():
 		return {}
-	pattern = re.compile(r"^(?P<name>.+?)\s+(?P<value>[\d.]+)\s*(?P<unit>mcg|mg|g)$")
-	values: dict[str, float] = {}
-	for line in values_path.read_text(encoding="utf-8").splitlines():
-		text = line.strip()
-		if not text:
-			continue
-		match = pattern.match(text)
-		if not match:
-			continue
-		name = match.group("name").strip()
-		try:
-			value = float(match.group("value"))
-		except ValueError:
-			continue
-		values[name] = value
+
+	values: dict[str, dict[str, float]] = {}
+	with values_path.open(newline="", encoding="utf-8") as handle:
+		reader = csv.DictReader(handle)
+		for row in reader:
+			person = (row.get("Person") or "").strip().lower()
+			if not person:
+				continue
+			values[person] = {
+				key: float(value) if value not in (None, "") else 0.0
+				for key, value in row.items()
+				if key and key != "Person"
+			}
 	return values
 
 
+def _get_daily_values(person: str) -> dict[str, float]:
+	return _load_daily_values().get(person, {})
+
+
+def _get_target_for_person(person: str) -> float:
+	daily_values = _get_daily_values(person)
+	energy = daily_values.get("Energy")
+	if energy:
+		return float(energy)
+	return float(NUTRITION_TARGETS.get(person, 0))
+
+
+def _apply_supplements(person: str, nutrients: dict[str, float]) -> dict[str, float]:
+	adjusted = dict(nutrients)
+	if person == "christian":
+		supplements = {
+			"Vitamin A (mcg)": 1050.0,
+			"Vitamin B6 (mg)": 2.0,
+			"Vitamin B12 (mcg)": 6.0,
+			"Vitamin C (mg)": 90.0,
+			"Vitamin D (mcg)": 10.0,
+			"Calcium (mg)": 200.0,
+			"Potassium (mg)": 80.0,
+			"Magnesium (mg)": 100.0,
+			"Iron (mg)": 18.0,
+			"Zinc (mg)": 11.0,
+			"Omega-3 (mg)": 1250.0,
+		}
+	elif person == "krysty":
+		supplements = {
+			"Vitamin A (mcg)": 1500.0,
+			"Vitamin C (mg)": 100.0,
+			"Vitamin D (mcg)": 87.5,
+			"Calcium (mg)": 600.0,
+			"Magnesium (mg)": 300.0,
+			"Zinc (mg)": 32.5,
+			"Sodium (mg)": 15.0,
+			"Omega-3 (mg)": 1250.0,
+		}
+	else:
+		supplements = {}
+
+	for key, value in supplements.items():
+		adjusted[key] = adjusted.get(key, 0.0) + value
+	return adjusted
+
+
 def _extract_json_payload(text: str) -> dict[str, object]:
-	try:
-		return json.loads(text)
-	except json.JSONDecodeError:
-		pass
 	start = text.find("{")
 	end = text.rfind("}")
-	if start == -1 or end == -1 or end <= start:
-		raise ValueError("No JSON object found in response.")
-	return json.loads(text[start : end + 1])
+	raw_payload = None
+	if start != -1 and end != -1 and end > start:
+		raw_payload = text[start : end + 1]
+
+	for payload_text in [raw_payload, text]:
+		if not payload_text:
+			continue
+		try:
+			parsed = json.loads(payload_text)
+			if isinstance(parsed, dict):
+				return parsed
+		except json.JSONDecodeError:
+			pass
+		try:
+			parsed = ast.literal_eval(payload_text)
+			if isinstance(parsed, dict):
+				return parsed
+		except (ValueError, SyntaxError):
+			pass
+
+	raise ValueError("No JSON or Python dict payload found in response.")
 
 
 def _limit_words(text: str, max_words: int) -> str:
@@ -385,7 +444,7 @@ def _parse_nutrition_payload(text: str) -> tuple[str | None, dict[str, float] | 
 		value = nutrients.get(key)
 		nutrient_values[column] = _coerce_number(value) or 0.0
 
-	return _limit_words(description, 20), nutrient_values, None
+	return _limit_words(description, 40), nutrient_values, None
 
 
 def _build_nutrition_messages(
@@ -448,6 +507,8 @@ def _generate_nutrition_summary(
 		print("Groq response:\n" + response, flush=True)
 		description, nutrient_values, error = _parse_nutrition_payload(response)
 		if nutrient_values is not None:
+			nutrient_values = _apply_supplements(person, nutrient_values)
+		if nutrient_values is not None:
 			print(list(nutrient_values.values()), flush=True)
 		if error or nutrient_values is None or description is None:
 			return None, error or "Unable to parse nutrition summary."
@@ -476,7 +537,7 @@ def _ensure_nutrition_outputs(
 	summary_rows = _read_nutrition_summary_rows(summary_path)
 	summary_map = {_summary_key(row): row for row in summary_rows}
 	fixed_prompt = _load_fixed_prompt()
-	target = NUTRITION_TARGETS.get(person, 0)
+	target = _get_target_for_person(person)
 
 	entries_by_date: dict[str, list[dict[str, str]]] = {}
 	for row in all_entries:
@@ -573,7 +634,7 @@ def _build_day_logs(
 		all_dates.insert(0, today)
 
 	logs: list[dict[str, object]] = []
-	target = NUTRITION_TARGETS.get(person, 0)
+	target = _get_target_for_person(person)
 	macro_columns = {
 		"Protein (g)": "protein",
 		"Carbohydrates (g)": "carbs",
@@ -658,7 +719,7 @@ def _render_nutrition_page(
 		day_logs=day_logs,
 		is_mobile=is_mobile,
 		profile=PERSON_PROFILES.get(person, {}),
-		daily_values=_load_daily_values(),
+		daily_values=_get_daily_values(person),
 	)
 
 
@@ -1020,6 +1081,11 @@ def _render_progress_rows(
 	plot.yaxis.major_label_text_color = "#007ba7"
 	plot.yaxis.major_label_orientation = 1.5708
 	plot.yaxis.minor_tick_line_color = None
+	if page_class == "tracker-page" and is_mobile:
+		plot.xaxis.major_label_text_font_size = "8pt"
+		plot.xaxis.major_label_orientation = 0.785398
+		plot.yaxis.major_label_text_font_size = "8pt"
+		plot.yaxis.major_label_orientation = 0.785398
 
 	krysty_window = [
 		krysty_targets[idx] for idx in window_indices if krysty_targets[idx] is not None
@@ -1040,6 +1106,9 @@ def _render_progress_rows(
 	right_axis.major_label_text_color = "#6366f1"
 	right_axis.major_label_orientation = 1.5708
 	right_axis.minor_tick_line_color = None
+	if page_class == "tracker-page" and is_mobile:
+		right_axis.major_label_text_font_size = "8pt"
+		right_axis.major_label_orientation = 0.785398
 	plot.add_layout(right_axis, "right")
 	christian_source = ColumnDataSource(
 		{
@@ -1418,7 +1487,6 @@ def create_app() -> Flask:
 	_ensure_nutrition_file(_nutrition_data_path("christian"))
 	_ensure_nutrition_file(_nutrition_data_path("krysty"))
 	_ensure_nutrition_summary_file(_nutrition_summary_path())
-	_bootstrap_nutrition_outputs()
 
 	@app.context_processor
 	def inject_data_dir() -> dict[str, str]:
@@ -1488,7 +1556,8 @@ def create_app() -> Flask:
 					_add_nutrition_entry(data_path, meal, calories, entry_date)
 			return redirect(url_for("nutrition", person=person))
 
-		summary_map = _ensure_nutrition_outputs(person, all_entries, today)
+		summary_rows = _read_nutrition_summary_rows(_nutrition_summary_path())
+		summary_map = {_summary_key(row): row for row in summary_rows}
 		day_logs = _build_day_logs(person, all_entries, today, summary_map)
 		return _render_nutrition_page(
 			person,
@@ -1496,6 +1565,49 @@ def create_app() -> Flask:
 			day_logs,
 			_is_mobile_request(),
 		)
+
+	@app.post("/nutrition/run-report")
+	def run_nutrition_report() -> str:
+		person = request.args.get("person", "krysty").strip().lower()
+		if person not in {"christian", "krysty"}:
+			person = "christian"
+		today = _nutrition_now().strftime("%Y-%m-%d")
+		entry_date_input = request.form.get("entry_date", "").strip()
+		entry_date = entry_date_input or today
+		try:
+			entry_date = datetime.strptime(entry_date, "%Y-%m-%d").strftime("%Y-%m-%d")
+		except ValueError:
+			entry_date = today
+
+		data_path = _nutrition_data_path(person)
+		all_entries = _read_nutrition_rows(data_path)
+		day_entries = [row for row in all_entries if row.get("Date", "") == entry_date]
+		total_calories = 0
+		for row in day_entries:
+			try:
+				total_calories += int(row.get("Calories", "0"))
+			except ValueError:
+				continue
+
+		row, error = _generate_nutrition_summary(
+			person,
+			entry_date,
+			day_entries,
+			total_calories,
+			_load_fixed_prompt(),
+		)
+		if row:
+			summary_path = _nutrition_summary_path()
+			summary_rows = _read_nutrition_summary_rows(summary_path)
+			summary_rows = [
+				existing for existing in summary_rows if _summary_key(existing) != (person, entry_date)
+			]
+			summary_rows.append(row)
+			_write_nutrition_summary_rows(summary_path, summary_rows)
+		elif error:
+			print(f"Nutrition summary error for {person} {entry_date}: {error}", flush=True)
+
+		return redirect(url_for("nutrition", person=person))
 
 	return app
 
