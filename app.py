@@ -106,7 +106,7 @@ LOCAL_SYNC_FROM_FLY = os.getenv("LOCAL_SYNC_FROM_FLY", "1") == "1"
 FLY_APP_NAME = os.getenv("FLY_APP_NAME", "fittinthispizza")
 FLY_VOLUME_PATH = os.getenv("FLY_VOLUME_PATH", "/data/data")
 MISTRAL_API_URL = "https://api.mistral.ai/v1/chat/completions"
-MISTRAL_MODEL = os.getenv("MISTRAL_MODEL", "mistral-small-latest")
+MISTRAL_MODEL = os.getenv("MISTRAL_MODEL", "mistral-large-latest")
 PERSON_PROFILES = {
 	"christian": {"age": 42, "height": "6'0\""},
 	"krysty": {"age": 41, "height": "5'4\""},
@@ -417,7 +417,7 @@ def _is_mobile_request() -> bool:
 
 
 def _call_mistral(messages: list[dict[str, str]]) -> str:
-	api_key = os.getenv("MISTRAL_API_KEY", "")
+	api_key = os.getenv("MISTRAL_API_KEY") or os.getenv("MISTRAL") or ""
 	if os.getenv("MISTRAL_DEBUG", "0") == "1":
 		print(
 			f"MISTRAL_DEBUG key_loaded={bool(api_key)} length={len(api_key)}",
