@@ -2,12 +2,14 @@
 set -euo pipefail
 
 APP_NAME="${APP_NAME:-fittinthispizza}"
-REMOTE_DIR="${REMOTE_DIR:-/data}"
+REMOTE_DIR="${REMOTE_DIR:-/data/data}"
 MACHINE_ID="${FLY_MACHINE_ID:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
+LOCAL_DIR="$REPO_ROOT/data"
+mkdir -p "$LOCAL_DIR"
 
 required_files=(
   "fitness_data.csv"
@@ -50,7 +52,7 @@ fi
 download_file() {
   local filename="$1"
   local required="$2"
-  local tmp_path="./.$filename.flytmp"
+  local tmp_path="$LOCAL_DIR/.$filename.flytmp"
   rm -f "$tmp_path"
 
   local cmd=(fly ssh sftp get "$REMOTE_DIR/$filename" "$tmp_path" -a "$APP_NAME")
@@ -58,7 +60,7 @@ download_file() {
   cmd+=("${select_args[@]}")
 
   if "${cmd[@]}"; then
-    mv "$tmp_path" "./$filename"
+    mv "$tmp_path" "$LOCAL_DIR/$filename"
     echo "Downloaded $filename"
     return 0
   fi
@@ -87,7 +89,7 @@ cat > ./.fly_data_sync.json <<EOF
   "app_name": "$APP_NAME",
   "remote_dir": "$REMOTE_DIR",
   "source_machine_id": "${source_machine_id:-}",
-  "source_volume": "${source_volume:-/data}",
+  "source_volume": "${source_volume:-/data/data}",
   "pulled_at_utc": "$pulled_at_utc"
 }
 EOF

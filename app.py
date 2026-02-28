@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import urllib.error
 import urllib.request
+import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -35,6 +36,14 @@ NUTRITION_COLUMNS = [
 	"Meal",
 	"Calories",
 ]
+EXERCISE_COLUMNS = [
+	"Id",
+	"Date",
+	"Person",
+	"Exercise",
+	"Duration",
+	"MET",
+]
 NUTRITION_SUMMARY_COLUMNS = [
 	"Date",
 	"Person",
@@ -60,6 +69,12 @@ NUTRITION_TARGETS = {
 	"christian": 1200,
 	"krysty": 1400,
 }
+API_PROMPT_COLUMNS = [
+	"Timestamp",
+	"Person",
+	"Date",
+	"Messages",
+]
 NUTRITION_JSON_KEYS = {
 	"Protein (g)": "protein_g",
 	"Carbohydrates (g)": "carbohydrates_g",
@@ -80,18 +95,18 @@ NUTRITION_JSON_KEYS = {
 }
 
 DEFAULT_DATA_DIR = (
-	"/data"
+	"/data/data"
 	if os.getenv("FLY_APP_NAME")
-	else str(Path(__file__).resolve().parent)
+	else str(Path(__file__).resolve().parent / "data")
 )
 DATA_DIR = Path(os.getenv("DATA_DIR", DEFAULT_DATA_DIR))
 EASTERN_TZ = ZoneInfo("America/New_York")
 SYNC_METADATA_PATH = Path(__file__).resolve().parent / ".fly_data_sync.json"
 LOCAL_SYNC_FROM_FLY = os.getenv("LOCAL_SYNC_FROM_FLY", "1") == "1"
 FLY_APP_NAME = os.getenv("FLY_APP_NAME", "fittinthispizza")
-FLY_VOLUME_PATH = os.getenv("FLY_VOLUME_PATH", "/data")
-GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+FLY_VOLUME_PATH = os.getenv("FLY_VOLUME_PATH", "/data/data")
+MISTRAL_API_URL = "https://api.mistral.ai/v1/chat/completions"
+MISTRAL_MODEL = os.getenv("MISTRAL_MODEL", "mistral-small-latest")
 PERSON_PROFILES = {
 	"christian": {"age": 42, "height": "6'0\""},
 	"krysty": {"age": 41, "height": "5'4\""},
@@ -100,7 +115,7 @@ PERSON_PROFILES = {
 
 def _build_data_sync_note() -> str:
 	if os.getenv("FLY_APP_NAME"):
-		return "Fly app · live data volume: /data"
+		return f"Fly app · live data volume: {DATA_DIR}"
 
 	if not SYNC_METADATA_PATH.exists():
 		return "Local app · no Fly sync metadata yet"
@@ -112,7 +127,7 @@ def _build_data_sync_note() -> str:
 		return "Local app · sync metadata unavailable"
 
 	pulled_at = metadata.get("pulled_at_utc", "unknown time")
-	volume = metadata.get("source_volume", "/data")
+	volume = metadata.get("source_volume", str(DATA_DIR))
 	machine = metadata.get("source_machine_id")
 	if machine:
 		return f"Local app · pulled {pulled_at} from {volume} (machine {machine})"
@@ -132,6 +147,7 @@ def _maybe_sync_from_fly() -> None:
 		"nutrition_christian.csv",
 		"nutrition_krysty.csv",
 		"nutrition.csv",
+		"exercise.csv",
 	)
 	synced = False
 	for filename in files:
@@ -154,6 +170,34 @@ def _maybe_sync_from_fly() -> None:
 		"source_volume": FLY_VOLUME_PATH,
 	}
 	SYNC_METADATA_PATH.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+
+
+def _migrate_legacy_data() -> None:
+	if not os.getenv("FLY_APP_NAME"):
+		return
+	legacy_dir = Path("/data")
+	if legacy_dir == DATA_DIR or not legacy_dir.exists():
+		return
+	filenames = [
+		"fitness_data.csv",
+		"fitness_data_prototype.csv",
+		"nutrition_christian.csv",
+		"nutrition_krysty.csv",
+		"nutrition.csv",
+		"exercise.csv",
+		"fixed_prompt.txt",
+		"daily_values.csv",
+		"api_prompts.csv",
+		"Supplement_Values.csv",
+	]
+	for name in filenames:
+		source = legacy_dir / name
+		target = DATA_DIR / name
+		if source.exists() and not target.exists():
+			try:
+				shutil.copyfile(source, target)
+			except OSError:
+				continue
 
 
 def _read_rows(data_path: Path) -> list[dict[str, str]]:
@@ -215,12 +259,156 @@ def _ensure_nutrition_file(data_path: Path) -> None:
 	_write_nutrition_rows(data_path, [])
 
 
+def _ensure_exercise_file(data_path: Path) -> None:
+	if data_path.exists():
+		return
+	_write_exercise_rows(data_path, [])
+
+
 def _nutrition_data_path(person: str) -> Path:
 	return DATA_DIR / f"nutrition_{person}.csv"
 
 
+def _exercise_data_path() -> Path:
+	return DATA_DIR / "exercise.csv"
+
+
 def _nutrition_now() -> datetime:
 	return datetime.now(EASTERN_TZ)
+
+
+def _read_exercise_rows(data_path: Path) -> list[dict[str, str]]:
+	if not data_path.exists():
+		return []
+
+	with data_path.open(newline="", encoding="utf-8") as handle:
+		reader = csv.DictReader(handle)
+		rows = [row for row in reader]
+
+	updated = False
+	for row in rows:
+		if not row.get("Id"):
+			row["Id"] = uuid.uuid4().hex
+			updated = True
+
+	if updated:
+		_write_exercise_rows(data_path, rows)
+	return rows
+
+
+def _write_exercise_rows(data_path: Path, rows: list[dict[str, str]]) -> None:
+	with data_path.open("w", newline="", encoding="utf-8") as handle:
+		writer = csv.DictWriter(handle, fieldnames=EXERCISE_COLUMNS)
+		writer.writeheader()
+		writer.writerows(rows)
+
+
+
+def _upsert_exercise_entry(
+	data_path: Path,
+	entry_date: str,
+	entry_id: str | None,
+	person: str,
+	exercise: str,
+	duration: float,
+	met: float,
+) -> None:
+	rows = _read_exercise_rows(data_path)
+	updated = False
+	if entry_id:
+		for row in rows:
+			if row.get("Id") == entry_id:
+				row.update(
+					{
+						"Date": entry_date,
+						"Person": person,
+						"Exercise": exercise,
+						"Duration": f"{duration}",
+						"MET": f"{met}",
+					}
+				)
+				updated = True
+				break
+
+	if not updated:
+		rows.append(
+			{
+				"Id": entry_id or uuid.uuid4().hex,
+				"Date": entry_date,
+				"Person": person,
+				"Exercise": exercise,
+				"Duration": f"{duration}",
+				"MET": f"{met}",
+			}
+		)
+	_write_exercise_rows(data_path, rows)
+
+
+def _delete_exercise_entry(data_path: Path, entry_id: str) -> bool:
+	rows = _read_exercise_rows(data_path)
+	if not entry_id:
+		return False
+	new_rows = [row for row in rows if row.get("Id") != entry_id]
+	if len(new_rows) == len(rows):
+		return False
+	_write_exercise_rows(data_path, new_rows)
+	return True
+
+
+def _format_duration_label(value: str) -> str:
+	parsed = _parse_float(value)
+	if parsed is None:
+		return value.strip()
+	if parsed.is_integer():
+		return f"{int(parsed)} min"
+	return f"{parsed:.1f} min"
+
+
+def _build_exercise_days(
+	entries: list[dict[str, str]],
+	start_date: datetime,
+) -> list[dict[str, object]]:
+	start = start_date.date()
+	entries_by_date: dict[str, list[dict[str, str]]] = {}
+	for row in entries:
+		date_value = row.get("Date", "")
+		if not date_value:
+			continue
+		entries_by_date.setdefault(date_value, []).append(row)
+
+	days: list[dict[str, object]] = []
+	for offset in range(14):
+		date_obj = start + timedelta(days=offset)
+		date_str = date_obj.strftime("%Y-%m-%d")
+		label = f"{date_obj.strftime('%b')} {date_obj.day}"
+		day_entries: list[dict[str, str]] = []
+		for row in entries_by_date.get(date_str, []):
+			entry_id = row.get("Id", "")
+			person = row.get("Person", "").strip().lower()
+			exercise = row.get("Exercise", "").strip()
+			duration_label = _format_duration_label(row.get("Duration", ""))
+			met_value = row.get("MET", "").strip()
+			if not exercise:
+				continue
+			day_entries.append(
+				{
+					"id": entry_id,
+					"person": person,
+					"exercise": exercise,
+					"duration": duration_label,
+					"duration_raw": row.get("Duration", "").strip(),
+					"met": met_value,
+				}
+			)
+		days.append(
+			{
+				"date": date_str,
+				"label": label,
+				"entries": day_entries,
+			}
+		)
+
+	return days
 
 
 def _is_mobile_request() -> bool:
@@ -228,25 +416,25 @@ def _is_mobile_request() -> bool:
 	return any(token in user_agent for token in ("iphone", "android", "mobile", "ipad"))
 
 
-def _call_groq(messages: list[dict[str, str]]) -> str:
-	api_key = os.getenv("GROQ_API_KEY", "")
-	if os.getenv("GROQ_DEBUG", "0") == "1":
+def _call_mistral(messages: list[dict[str, str]]) -> str:
+	api_key = os.getenv("MISTRAL_API_KEY", "")
+	if os.getenv("MISTRAL_DEBUG", "0") == "1":
 		print(
-			f"GROQ_DEBUG key_loaded={bool(api_key)} length={len(api_key)}",
+			f"MISTRAL_DEBUG key_loaded={bool(api_key)} length={len(api_key)}",
 			flush=True,
 		)
 	if not api_key:
-		raise RuntimeError("Missing GROQ_API_KEY")
+		raise RuntimeError("Missing MISTRAL_API_KEY")
 
 	payload = {
-		"model": GROQ_MODEL,
+		"model": MISTRAL_MODEL,
 		"messages": messages,
 		"temperature": 0.1,
 		"max_tokens": 900,
 	}
 	data = json.dumps(payload).encode("utf-8")
 	request = urllib.request.Request(
-		GROQ_API_URL,
+		MISTRAL_API_URL,
 		data=data,
 		headers={
 			"Authorization": f"Bearer {api_key}",
@@ -267,7 +455,7 @@ def _call_groq(messages: list[dict[str, str]]) -> str:
 		except (OSError, UnicodeDecodeError):
 			body = ""
 		raise RuntimeError(
-			f"Groq HTTP {exc.code}: {body or exc.reason}"
+			f"Mistral HTTP {exc.code}: {body or exc.reason}"
 		) from exc
 
 
@@ -299,8 +487,29 @@ def _write_nutrition_summary_rows(data_path: Path, rows: list[dict[str, str]]) -
 		writer.writerows(rows)
 
 
+def _append_api_prompt(
+	person: str,
+	entry_date: str,
+	messages: list[dict[str, str]],
+) -> None:
+	path = DATA_DIR / "api_prompts.csv"
+	file_exists = path.exists()
+	with path.open("a", newline="", encoding="utf-8") as handle:
+		writer = csv.DictWriter(handle, fieldnames=API_PROMPT_COLUMNS)
+		if not file_exists:
+			writer.writeheader()
+		writer.writerow(
+			{
+				"Timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+				"Person": person,
+				"Date": entry_date,
+				"Messages": json.dumps(messages, ensure_ascii=True),
+			}
+		)
+
+
 def _load_fixed_prompt() -> str:
-	prompt_path = Path(__file__).resolve().parent / "fixed_prompt.txt"
+	prompt_path = DATA_DIR / "fixed_prompt.txt"
 	try:
 		return prompt_path.read_text(encoding="utf-8").strip()
 	except OSError:
@@ -308,7 +517,7 @@ def _load_fixed_prompt() -> str:
 
 
 def _load_daily_values() -> dict[str, dict[str, float]]:
-	values_path = Path(__file__).resolve().parent / "daily_values.csv"
+	values_path = DATA_DIR / "daily_values.csv"
 	if not values_path.exists():
 		return {}
 
@@ -501,10 +710,10 @@ def _generate_nutrition_summary(
 		return None, "Missing fixed_prompt.txt."
 
 	try:
-		response = _call_groq(
-			_build_nutrition_messages(person, entry_date, entries, total_calories, fixed_prompt)
-		)
-		print("Groq response:\n" + response, flush=True)
+		messages = _build_nutrition_messages(person, entry_date, entries, total_calories, fixed_prompt)
+		_append_api_prompt(person, entry_date, messages)
+		response = _call_mistral(messages)
+		print("Mistral response:\n" + response, flush=True)
 		description, nutrient_values, error = _parse_nutrition_payload(response)
 		if nutrient_values is not None:
 			nutrient_values = _apply_supplements(person, nutrient_values)
@@ -521,7 +730,7 @@ def _generate_nutrition_summary(
 			row[column] = f"{nutrient_values.get(column, 0.0):.2f}"
 		return row, None
 	except (RuntimeError, urllib.error.URLError, KeyError, json.JSONDecodeError) as exc:
-		return None, f"Groq error: {exc}"
+		return None, f"Mistral error: {exc}"
 
 
 def _summary_key(row: dict[str, str]) -> tuple[str, str]:
@@ -610,6 +819,30 @@ def _add_nutrition_entry(
 	_write_nutrition_rows(data_path, rows)
 
 
+def _delete_nutrition_entry(
+	data_path: Path,
+	entry_date: str,
+	entry_index: int,
+) -> bool:
+	rows = _read_nutrition_rows(data_path)
+	current_index = 0
+	new_rows: list[dict[str, str]] = []
+	deleted = False
+
+	for row in rows:
+		if row.get("Date", "") == entry_date:
+			if current_index == entry_index:
+				deleted = True
+				current_index += 1
+				continue
+			current_index += 1
+		new_rows.append(row)
+
+	if deleted:
+		_write_nutrition_rows(data_path, new_rows)
+	return deleted
+
+
 def _summary_value(row: dict[str, str], column: str) -> float:
 	value = row.get(column, "")
 	parsed = _parse_float(value)
@@ -656,7 +889,7 @@ def _build_day_logs(
 				continue
 		running = 0
 		entry_rows: list[dict[str, object]] = []
-		for row in entries:
+		for idx, row in enumerate(entries):
 			calories_value = 0
 			try:
 				calories_value = int(row.get("Calories", "0"))
@@ -667,6 +900,7 @@ def _build_day_logs(
 			entry_rows.append(
 				{
 					**row,
+					"entry_index": idx,
 					"late_entry": is_late,
 				}
 			)
@@ -1482,11 +1716,13 @@ def create_app() -> Flask:
 	app = Flask(__name__)
 	DATA_DIR.mkdir(parents=True, exist_ok=True)
 	_maybe_sync_from_fly()
+	_migrate_legacy_data()
 	_ensure_seed_data_file(DATA_DIR / "fitness_data.csv", "fitness_data.csv")
 	_ensure_seed_data_file(DATA_DIR / "fitness_data_prototype.csv", "fitness_data_prototype.csv")
 	_ensure_nutrition_file(_nutrition_data_path("christian"))
 	_ensure_nutrition_file(_nutrition_data_path("krysty"))
 	_ensure_nutrition_summary_file(_nutrition_summary_path())
+	_ensure_exercise_file(_exercise_data_path())
 
 	@app.context_processor
 	def inject_data_dir() -> dict[str, str]:
@@ -1608,6 +1844,88 @@ def create_app() -> Flask:
 			print(f"Nutrition summary error for {person} {entry_date}: {error}", flush=True)
 
 		return redirect(url_for("nutrition", person=person))
+
+	@app.post("/nutrition/delete-entry")
+	def delete_nutrition_entry() -> str:
+		person = request.args.get("person", "krysty").strip().lower()
+		if person not in {"christian", "krysty"}:
+			person = "christian"
+		entry_date = request.form.get("entry_date", "").strip()
+		entry_index_raw = request.form.get("entry_index", "").strip()
+		try:
+			entry_index = int(entry_index_raw)
+		except ValueError:
+			entry_index = -1
+
+		if entry_date and entry_index >= 0:
+			data_path = _nutrition_data_path(person)
+			_delete_nutrition_entry(data_path, entry_date, entry_index)
+
+		return redirect(url_for("nutrition", person=person))
+
+	@app.route("/exercise", methods=["GET", "POST"])
+	def exercise() -> str:
+		start_param = request.form.get("start", "").strip()
+		if request.method == "POST":
+			action = request.form.get("action", "upsert").strip().lower()
+			person = request.form.get("person", "").strip().lower()
+			if person not in {"christian", "krysty"}:
+				person = "christian"
+			entry_date = request.form.get("entry_date", "").strip()
+			exercise_name = request.form.get("exercise", "").strip()
+			duration_input = request.form.get("duration", "").strip()
+			met_input = request.form.get("met", "").strip()
+			entry_id = request.form.get("entry_id", "").strip() or None
+			try:
+				duration = float(duration_input)
+			except ValueError:
+				duration = -1
+			try:
+				met = float(met_input)
+			except ValueError:
+				met = -1
+			data_path = _exercise_data_path()
+			if action == "delete" and entry_id:
+				_delete_exercise_entry(data_path, entry_id)
+			elif entry_date and exercise_name and duration >= 0 and met >= 0:
+				_upsert_exercise_entry(
+					data_path,
+					entry_date,
+					entry_id,
+					person,
+					exercise_name,
+					duration,
+					met,
+				)
+			return redirect(url_for("exercise", start=start_param or None))
+
+		today = _nutrition_now()
+		start_date = today.date() - timedelta(days=today.weekday())
+		start_param = request.args.get("start", "").strip()
+		if start_param:
+			try:
+				start_date = datetime.strptime(start_param, "%Y-%m-%d").date()
+			except ValueError:
+				start_date = today.date() - timedelta(days=today.weekday())
+
+		rows = _read_exercise_rows(_exercise_data_path())
+		days = _build_exercise_days(rows, datetime.combine(start_date, datetime.min.time()))
+		prev_start = (start_date - timedelta(days=7)).strftime("%Y-%m-%d")
+		next_start = (start_date + timedelta(days=7)).strftime("%Y-%m-%d")
+		end_date = start_date + timedelta(days=13)
+		range_label = f"{start_date.strftime('%b %d')} - {end_date.strftime('%b %d')}"
+		weekday_labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+		return render_template(
+			"exercise.html",
+			title="Fittin' this Whole Pizza in my Mouth",
+			page_class="exercise-page",
+			start_date=start_date.strftime("%Y-%m-%d"),
+			prev_start=prev_start,
+			next_start=next_start,
+			range_label=range_label,
+			weekday_labels=weekday_labels,
+			days=days,
+		)
 
 	return app
 

@@ -39,6 +39,7 @@
               <tr>
                 <th>Meal</th>
                 <th>Calories</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -46,10 +47,22 @@
                 <tr class="{{ 'late-entry' if entry.late_entry else '' }}">
                   <td class="meal-cell">{{ entry['Meal'] }}</td>
                   <td>{{ entry['Calories'] }}</td>
+                  <td class="entry-delete-cell">
+                    <form
+                      method="post"
+                      action="{{ url_for('delete_nutrition_entry', person=active_person) }}"
+                    >
+                      <input type="hidden" name="entry_date" value="{{ day.date }}" />
+                      <input type="hidden" name="entry_index" value="{{ entry.entry_index }}" />
+                      <button class="entry-delete-button" type="submit" aria-label="Delete entry">
+                        &times;
+                      </button>
+                    </form>
+                  </td>
                 </tr>
               {% else %}
                 <tr>
-                  <td colspan="2">No entries for this day yet.</td>
+                  <td colspan="3">No entries for this day yet.</td>
                 </tr>
               {% endfor %}
             </tbody>

@@ -2,13 +2,14 @@
 set -euo pipefail
 
 APP_NAME="${APP_NAME:-fittinthispizza}"
-REMOTE_DIR="${REMOTE_DIR:-/data}"
+REMOTE_DIR="${REMOTE_DIR:-/data/data}"
 MACHINE_ID="${FLY_MACHINE_ID:-}"
 FORCE="${FORCE_SYNC:-0}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
+LOCAL_DIR="$REPO_ROOT/data"
 
 for arg in "$@"; do
   if [[ "$arg" == "-y" || "$arg" == "--yes" ]]; then
@@ -52,8 +53,8 @@ mkdir -p "$backup_dir"
 status=0
 
 for file in "${files[@]}"; do
-  if [[ ! -f "$file" ]]; then
-    echo "Warning: Local file missing, skipping upload: $file"
+  if [[ ! -f "$LOCAL_DIR/$file" ]]; then
+    echo "Warning: Local file missing, skipping upload: $LOCAL_DIR/$file"
     continue
   fi
 
@@ -66,7 +67,7 @@ for file in "${files[@]}"; do
     echo "Warning: Could not back up remote $file (may not exist yet)."
   fi
 
-  put_cmd=(fly ssh sftp put "./$file" "$REMOTE_DIR/$file" -a "$APP_NAME")
+  put_cmd=(fly ssh sftp put "$LOCAL_DIR/$file" "$REMOTE_DIR/$file" -a "$APP_NAME")
   put_cmd+=("${machine_args[@]}")
   put_cmd+=("${select_args[@]}")
   if "${put_cmd[@]}"; then
